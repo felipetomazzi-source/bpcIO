@@ -10,7 +10,8 @@ sap.ui.define([
       this._scripts = [];                                                                                                                                                                                                                                      
       this._packages = [];                                                                                                                                                                                                                                     
       this._transformations = [];                                                                                                                                                                                                                              
-      this._conversions = [];                                                                                                                                                                                                                                  
+      this._conversions = [];
+      this._workbooks = [];                                                                                                                                                                                                                                  
       this._sorter = new Sorter("category", false, function (oContext) {                                                                                                                                                                                       
         var sCategory = oContext.getProperty("category");                                                                                                                                                                                                      
         return { key: sCategory, text: sCategory };                                                                                                                                                                                                            
@@ -62,19 +63,22 @@ sap.ui.define([
       this._scripts = [];                                                                                                                                                                                                                                      
       this._packages = [];                                                                                                                                                                                                                                     
       this._transformations = [];                                                                                                                                                                                                                              
-      this._conversions = [];                                                                                                                                                                                                                                  
+      this._conversions = [];
+      this._workbooks = [];                                                                                                                                                                                                                                  
       this._set("objects", []);                                                                                                                                                                                                                                
       this._set("uploaded", []);                                                                                                                                                                                                                               
       this._set("archivePackages", []);                                                                                                                                                                                                                        
       this._set("archiveTransformations", []);                                                                                                                                                                                                                 
-      this._set("archiveConversions", []);                                                                                                                                                                                                                     
+      this._set("archiveConversions", []);
+      this._set("archiveWorkbooks", []);                                                                                                                                                                                                                     
       this._set("selectedCount", 0);                                                                                                                                                                                                                           
       this._set("objectsLoaded", false);                                                                                                                                                                                                                       
       this._set("importResults", []);                                                                                                                                                                                                                          
       this._set("importSummary", "");                                                                                                                                                                                                                          
       this._set("packageImportSummary", "");                                                                                                                                                                                                                   
       this._set("transformationImportSummary", "");                                                                                                                                                                                                            
-      this._set("conversionImportSummary", "");                                                                                                                                                                                                                
+      this._set("conversionImportSummary", "");
+      this._set("workbookImportSummary", "");                                                                                                                                                                                                                
       var oList = this.byId("objects");                                                                                                                                                                                                                        
       if (oList) { oList.removeSelections(true); }                                                                                                                                                                                                             
       return this._generation;                                                                                                                                                                                                                                 
@@ -120,7 +124,11 @@ sap.ui.define([
       }.bind(this));                                                                                                                                                                                                                                           
       var pConversions = this._request("conversions", mTarget).then(function (oData) {                                                                                                                                                                         
         if (!Array.isArray(oData.conversions)) { throw new Error("Invalid conversion response."); }                                                                                                                                                            
-        this._conversions = oData.conversions;                                                                                                                                                                                                                 
+        this._conversions = oData.conversions;
+        return this._request("workbooks", mTarget).then(function (oW) {
+          if (!Array.isArray(oW.workbooks)) { throw new Error("Invalid workbook response."); }
+          this._workbooks = oW.workbooks;
+        }.bind(this));                                                                                                                                                                                                                 
       }.bind(this));                                                                                                                                                                                                                                           
       Promise.all([pScripts, pPackages, pTransformations, pConversions]).then(function () {                                                                                                                                                                    
         if (this._destroyed || iGeneration !== this._generation) { return; }                                                                                                                                                                                   
@@ -148,6 +156,9 @@ sap.ui.define([
       }.bind(this));
       var pConversions = this._request("conversions", mTarget).then(function (oData) {
         if (Array.isArray(oData.conversions)) { this._conversions = oData.conversions; }
+        return this._request("workbooks", mTarget).then(function (oW) {
+          if (Array.isArray(oW.workbooks)) { this._workbooks = oW.workbooks; }
+        }.bind(this));
       }.bind(this));
       Promise.all([pScripts, pPackages, pTransformations, pConversions]).then(function () {
         if (this._destroyed || iGeneration !== this._generation) { return; }
@@ -172,6 +183,11 @@ sap.ui.define([
         aObjects.push({ category: "Conversion Files", kind: "conversion", title: oConversion.name,                                                                                                                                                             
           name: oConversion.name, info: "Conversion" });                                                                                                                                                                                                       
       });                                                                                                                                                                                                                                                      
+      (this._workbooks || []).forEach(function (oWorkbook) {
+        aObjects.push({ category: "EPM Workbooks", kind: "workbook", title: oWorkbook.name,
+          name: oWorkbook.name, folder: oWorkbook.folder,
+          info: oWorkbook.folder === "SCHEDULE" ? "Input Schedule" : "Report" });
+      });
       this._set("objects", aObjects);                                                                                                                                                                                                                          
       var oList = this.byId("objects");                                                                                                                                                                                                                        
       if (oList) {                                                                                                                                                                                                                                             
@@ -194,16 +210,17 @@ sap.ui.define([
     onExport: function () {                                                                                                                                                                                                                                    
       var aItems = this.byId("objects").getSelectedItems();                                                                                                                                                                                                    
       if (!aItems.length) { return; }                                                                                                                                                                                                                          
-      var aScriptNames = [], aPkgRefs = [], aTransRefs = [], aConvRefs = [];                                                                                                                                                                                   
+      var aScriptNames = [], aPkgRefs = [], aTransRefs = [], aConvRefs = [], aWbRefs = [];                                                                                                                                                                                   
       aItems.forEach(function (oItem) {                                                                                                                                                                                                                        
         var oNode = oItem.getBindingContext("bpc").getObject();                                                                                                                                                                                                
         if (oNode.kind === "script") { aScriptNames.push(oNode.name); }                                                                                                                                                                                        
         else if (oNode.kind === "package") { aPkgRefs.push(oNode); }                                                                                                                                                                                           
         else if (oNode.kind === "transformation") { aTransRefs.push(oNode.name); }                                                                                                                                                                             
-        else if (oNode.kind === "conversion") { aConvRefs.push(oNode.name); }                                                                                                                                                                                  
+        else if (oNode.kind === "conversion") { aConvRefs.push(oNode.name); }
+        else if (oNode.kind === "workbook") { aWbRefs.push({ name: oNode.name, folder: oNode.folder }); }                                                                                                                                                                                  
       });                                                                                                                                                                                                                                                      
       var mTarget = this._target(), iGeneration = this._generation;                                                                                                                                                                                            
-      var aScripts = [], aPackages = [], aTransformations = [], aConversions = [], iBytes = 0;                                                                                                                                                                 
+      var aScripts = [], aPackages = [], aTransformations = [], aConversions = [], aWorkbooks = [], iBytes = 0;                                                                                                                                                                 
       this._set("busy", true);                                                                                                                                                                                                                                 
       var p = Promise.resolve();                                                                                                                                                                                                                               
       aScriptNames.forEach(function (sName, i) {                                                                                                                                                                                                               
@@ -235,7 +252,18 @@ sap.ui.define([
           return this._request("conversion", { environment: mTarget.environment, model: mTarget.model, name: sName });                                                                                                                                         
         }.bind(this)).then(function (oDetail) { aConversions.push(oDetail); });                                                                                                                                                                                
       }, this);                                                                                                                                                                                                                                                
-      p.then(function () { return Archive.exportFile(mTarget.environment, mTarget.model, aScripts, aPackages, aTransformations, aConversions); })                                                                                                              
+      aWbRefs.forEach(function (oRef) {
+        p = p.then(function () {
+          if (this._destroyed || iGeneration !== this._generation) { throw new Error("Selection changed. Export cancelled."); }
+          this._set("status", "Reading workbook " + oRef.name + "...");
+          return this._request("workbook", { environment: mTarget.environment, model: mTarget.model, folder: oRef.folder, name: oRef.name });
+        }.bind(this)).then(function (oWb) {
+          iBytes += oWb.byteLength;
+          if (iBytes > 35 * 1024 * 1024) { throw new Error("Select fewer objects: the export exceeds 35 MB of content."); }
+          aWorkbooks.push(oWb);
+        });
+      }, this);
+      p.then(function () { return Archive.exportFile(mTarget.environment, mTarget.model, aScripts, aPackages, aTransformations, aConversions, aWorkbooks); })                                                                                                              
         .then(function (oBlob) {                                                                                                                                                                                                                               
           if (this._destroyed || iGeneration !== this._generation) { return; }                                                                                                                                                                                 
           var sUrl = URL.createObjectURL(oBlob), oLink = document.createElement("a");                                                                                                                                                                          
@@ -244,9 +272,10 @@ sap.ui.define([
           document.body.appendChild(oLink); oLink.click(); oLink.remove();                                                                                                                                                                                     
           setTimeout(function () { URL.revokeObjectURL(sUrl); }, 10000);                                                                                                                                                                                       
           this._set("busy", false);                                                                                                                                                                                                                            
-          this._set("status", "Exported " + (aScripts.length + aPackages.length + aTransformations.length + aConversions.length) + " object(s): " +                                                                                                            
+          this._set("status", "Exported " + (aScripts.length + aPackages.length + aTransformations.length + aConversions.length + aWorkbooks.length) + " object(s): " +                                                                                                            
             aScripts.length + " Logic Script(s), " + aPackages.length + " Data Manager Package(s), " +                                                                                                                                                         
-            aTransformations.length + " Transformation File(s), " + aConversions.length + " Conversion File(s).");                                                                                                                                             
+            aTransformations.length + " Transformation File(s), " + aConversions.length + " Conversion File(s), " +
+            aWorkbooks.length + " EPM Workbook(s).");                                                                                                                                             
         }.bind(this)).catch(function (e) { if (iGeneration === this._generation) { this._error(e); } }.bind(this));                                                                                                                                            
     },                                                                                                                                                                                                                                                         
     onUpload: function () {                                                                                                                                                                                                                                    
@@ -267,10 +296,12 @@ sap.ui.define([
         Archive.read(oFile).then(function (oArchive) {                                                                                                                                                                                                         
           if (this._destroyed || iGeneration !== this._generation) { return; }                                                                                                                                                                                 
           var aScripts = oArchive.scripts || [], aPackages = oArchive.packages || [],                                                                                                                                                                          
-            aTransformations = oArchive.transformations || [], aConversions = oArchive.conversions || [];                                                                                                                                                      
+            aTransformations = oArchive.transformations || [], aConversions = oArchive.conversions || [],
+            aWorkbooks = oArchive.workbooks || [];                                                                                                                                                      
           this._set("archivePackages", aPackages);                                                                                                                                                                                                             
           this._set("archiveTransformations", aTransformations);                                                                                                                                                                                               
-          this._set("archiveConversions", aConversions);                                                                                                                                                                                                       
+          this._set("archiveConversions", aConversions);
+          this._set("archiveWorkbooks", aWorkbooks);                                                                                                                                                                                                       
           var pPrepare = Promise.resolve();                                                                                                                                                                                                                    
           if (aScripts.length) {                                                                                                                                                                                                                               
             pPrepare = this._request("scripts", mTarget).then(function (oData) {                                                                                                                                                                               
@@ -329,37 +360,41 @@ sap.ui.define([
     },                                                                                                                                                                                                                                                         
     onImport: function () {                                                                                                                                                                                                                                    
       var aScripts = this._get("uploaded") || [], aPackages = this._get("archivePackages") || [],                                                                                                                                                              
-        aTransformations = this._get("archiveTransformations") || [], aConversions = this._get("archiveConversions") || [],                                                                                                                                    
+        aTransformations = this._get("archiveTransformations") || [], aConversions = this._get("archiveConversions") || [],
+        aWorkbooks = this._get("archiveWorkbooks") || [],                                                                                                                                    
         mTarget = this._target();                                                                                                                                                                                                                              
-      if ((!aScripts.length && !aPackages.length && !aTransformations.length && !aConversions.length) || !mTarget.model) {                                                                                                                                     
+      if ((!aScripts.length && !aPackages.length && !aTransformations.length && !aConversions.length && !aWorkbooks.length) || !mTarget.model) {                                                                                                                                     
         MessageBox.error("The archive contains no objects to import.");                                                                                                                                                                                        
         return;                                                                                                                                                                                                                                                
       }                                                                                                                                                                                                                                                        
       var bReplace = this.byId("replaceExisting").getSelected();                                                                                                                                                                                               
       var bReplacePkgs = this.byId("replacePackages").getSelected();                                                                                                                                                                                           
       var bReplaceTrans = this.byId("replaceTransformations").getSelected();                                                                                                                                                                                   
-      var bReplaceConvs = this.byId("replaceConversions").getSelected();                                                                                                                                                                                       
+      var bReplaceConvs = this.byId("replaceConversions").getSelected();
+      var bReplaceWbs = this.byId("replaceWorkbooks").getSelected();                                                                                                                                                                                       
       var iPlanned = aScripts.filter(function (s) { return bReplace || !s.activeName; }).length;                                                                                                                                                               
       var aParts = [                                                                                                                                                                                                                                           
         aScripts.length ? aScripts.length + " script(s)" : "",                                                                                                                                                                                                 
         aPackages.length ? aPackages.length + " package(s)" : "",                                                                                                                                                                                              
         aTransformations.length ? aTransformations.length + " transformation(s)" : "",                                                                                                                                                                         
-        aConversions.length ? aConversions.length + " conversion(s)" : ""                                                                                                                                                                                      
+        aConversions.length ? aConversions.length + " conversion(s)" : "",
+        aWorkbooks.length ? aWorkbooks.length + " workbook(s)" : ""                                                                                                                                                                                      
       ].filter(function (s) { return s; });                                                                                                                                                                                                                    
       var sScriptDetail = aScripts.length ? iPlanned + " script(s) will be written. " : "";                                                                                                                                                                    
       var sPkgDetail = aPackages.length ? (bReplacePkgs ? "Existing packages will be replaced. " : "Only missing packages will be created. ") : "";                                                                                                            
       var sTransDetail = aTransformations.length ? (bReplaceTrans ? "Existing transformations will be replaced. " : "Only missing transformations will be created. ") : "";                                                                                    
-      var sConvsDetail = aConversions.length ? (bReplaceConvs ? "Existing conversions will be replaced. " : "Only missing conversions will be created. ") : "";                                                                                                
+      var sConvsDetail = aConversions.length ? (bReplaceConvs ? "Existing conversions will be replaced. " : "Only missing conversions will be created. ") : "";
+      var sWbDetail = aWorkbooks.length ? (bReplaceWbs ? "Existing workbooks will be replaced. " : "Only missing workbooks will be created. ") : "";                                                                                                
       MessageBox.confirm(                                                                                                                                                                                                                                      
         "Import " + aParts.join(" and ") + " into " + mTarget.environment + " / " + mTarget.model + ". " +                                                                                                                                                     
-        sScriptDetail + sPkgDetail + sTransDetail + sConvsDetail, {                                                                                                                                                                                            
+        sScriptDetail + sPkgDetail + sTransDetail + sConvsDetail + sWbDetail, {                                                                                                                                                                                            
           title: "Import Objects",                                                                                                                                                                                                                             
           onClose: function (sAction) {                                                                                                                                                                                                                        
-            if (sAction === MessageBox.Action.OK) { this._submitImport(mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs); }                                                                  
+            if (sAction === MessageBox.Action.OK) { this._submitImport(mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs, aWorkbooks, bReplaceWbs); }                                                                  
           }.bind(this)                                                                                                                                                                                                                                         
         });                                                                                                                                                                                                                                                    
     },                                                                                                                                                                                                                                                         
-    _submitImport: function (mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs) {
+    _submitImport: function (mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs, aWorkbooks, bReplaceWbs) {
       var mTotals = { changed: 0, skipped: 0, failed: 0 };
       var fnTally = function (oData) {
         mTotals.changed += oData.changed || 0;
@@ -372,7 +407,8 @@ sap.ui.define([
       this._set("importSummary", "");                                                                                                                                                                                                                          
       this._set("packageImportSummary", "");                                                                                                                                                                                                                   
       this._set("transformationImportSummary", "");                                                                                                                                                                                                            
-      this._set("conversionImportSummary", "");                                                                                                                                                                                                                
+      this._set("conversionImportSummary", "");
+      this._set("workbookImportSummary", "");                                                                                                                                                                                                                
       this._set("busy", true);                                                                                                                                                                                                                                 
       var p = Promise.resolve();                                                                                                                                                                                                                               
       if (aScripts.length) {                                                                                                                                                                                                                                   
@@ -400,7 +436,10 @@ sap.ui.define([
         p = p.then(function () { return this._submitDmImport(mTarget, aTransformations, bReplaceTrans, "transformations/import", "transformation").then(fnTally); }.bind(this));                                                                                             
       }                                                                                                                                                                                                                                                        
       if (aConversions.length) {                                                                                                                                                                                                                               
-        p = p.then(function () { return this._submitDmImport(mTarget, aConversions, bReplaceConvs, "conversions/import", "conversion").then(fnTally); }.bind(this));                                                                                                         
+        p = p.then(function () { return this._submitDmImport(mTarget, aConversions, bReplaceConvs, "conversions/import", "conversion").then(fnTally); }.bind(this));
+      }
+      if (aWorkbooks && aWorkbooks.length) {
+        p = p.then(function () { return this._submitWorkbookImport(mTarget, aWorkbooks, bReplaceWbs).then(fnTally); }.bind(this));                                                                                                         
       }                                                                                                                                                                                                                                                        
       p.then(function () {                                                                                                                                                                                                                                     
         this._set("importBusy", false);                                                                                                                                                                                                                        
@@ -437,6 +476,22 @@ sap.ui.define([
         return oData;                                                                                                                                                                                                                                          
       }.bind(this));                                                                                                                                                                                                                                           
     },                                                                                                                                                                                                                                                         
+    _submitWorkbookImport: function (mTarget, aWorkbooks, bReplace) {
+      var mData = { environment: mTarget.environment, model: mTarget.model, count: aWorkbooks.length };
+      if (bReplace) { mData.replace = "X"; }
+      aWorkbooks.forEach(function (oWb, i) {
+        mData["name" + (i + 1)] = oWb.name;
+        mData["folder" + (i + 1)] = oWb.folder;
+        mData["content" + (i + 1)] = oWb.content || "";
+      });
+      this._set("status", "Importing " + aWorkbooks.length + " workbook(s)...");
+      return this._request("workbooks/import", mData, "POST").then(function (oData) {
+        if (!Array.isArray(oData.results)) { throw new Error("Invalid workbook import response."); }
+        this._set("workbookImportSummary", "Workbook import: " + oData.changed + " written, " + oData.skipped + " skipped, " + oData.failed + " failed.");
+        if (oData.failed) { MessageBox.warning("Some workbooks could not be written. See the status for details."); }
+        return oData;
+      }.bind(this));
+    },
     _submitDmImport: function (mTarget, aFiles, bReplace, sResource, sKind) {                                                                                                                                                                                  
       var mData = { environment: mTarget.environment, model: mTarget.model, count: aFiles.length };                                                                                                                                                            
       if (bReplace) { mData.replace = "X"; }                                                                                                                                                                                                                   

@@ -1,394 +1,427 @@
-class zcl_bpc_io_http definition public final create public.
-  public section.
-    interfaces if_http_extension.
-  private section.
+CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
+  PUBLIC SECTION.
+    INTERFACES if_http_extension.
+  PRIVATE SECTION.
     "! Request and response of the current call.
-    data mo_server type ref to if_http_server.
+    DATA mo_server TYPE REF TO if_http_server.
     " Resources served by this handler.
-    constants:
-      begin of c_resource,
-        environments    type string value '/environments',
-        models          type string value '/models',
-        scripts         type string value '/scripts',
-        script          type string value '/script',
-        packages        type string value '/packages',
-        package         type string value '/package',
-        import          type string value '/import',
-        packages_import type string value '/packages/import',
-        transformations  type string value '/transformations',
-        transformation   type string value '/transformation',
-        transforms_import type string value '/transformations/import',
-        conversions      type string value '/conversions',
-        conversion       type string value '/conversion',
-        convers_import   type string value '/conversions/import',
-      end of c_resource.
-    constants:
-      begin of c_method,
-        get  type string value 'GET',
-        post type string value 'POST',
-      end of c_method.
+    CONSTANTS:
+      BEGIN OF c_resource,
+        environments    TYPE string VALUE '/environments',
+        models          TYPE string VALUE '/models',
+        scripts         TYPE string VALUE '/scripts',
+        script          TYPE string VALUE '/script',
+        packages        TYPE string VALUE '/packages',
+        package         TYPE string VALUE '/package',
+        import          TYPE string VALUE '/import',
+        packages_import TYPE string VALUE '/packages/import',
+        transformations  TYPE string VALUE '/transformations',
+        transformation   TYPE string VALUE '/transformation',
+        transforms_import TYPE string VALUE '/transformations/import',
+        conversions      TYPE string VALUE '/conversions',
+        conversion       TYPE string VALUE '/conversion',
+        convers_import   TYPE string VALUE '/conversions/import',
+        workbooks        TYPE string VALUE '/workbooks',
+        workbook         TYPE string VALUE '/workbook',
+        workbooks_import TYPE string VALUE '/workbooks/import',
+      END OF c_resource.
+    CONSTANTS:
+      BEGIN OF c_method,
+        get  TYPE string VALUE 'GET',
+        post TYPE string VALUE 'POST',
+      END OF c_method.
     "! One import request accepts at most this many scripts
-    constants c_max_scripts type i value 2000 ##NO_TEXT.
+    CONSTANTS c_max_scripts TYPE i VALUE 2000 ##NO_TEXT.
     "! and this much decoded script content (20 MB).
-    constants c_max_content type i value 20971520 ##NO_TEXT.
+    CONSTANTS c_max_content TYPE i VALUE 20971520 ##NO_TEXT.
     "! One package import accepts at most this many packages
-    constants c_max_packages type i value 1000 ##NO_TEXT.
+    CONSTANTS c_max_packages TYPE i VALUE 1000 ##NO_TEXT.
     "! and this much decoded package script content (5 MB).
-    constants c_max_package_content type i value 5242880 ##NO_TEXT.
+    CONSTANTS c_max_package_content TYPE i VALUE 5242880 ##NO_TEXT.
     "! One transformation/conversion import accepts at most this many files
-    constants c_max_dm_files type i value 1000 ##NO_TEXT.
+    CONSTANTS c_max_dm_files TYPE i VALUE 1000 ##NO_TEXT.
     "! and this much decoded definition + workbook content (20 MB).
-    constants c_max_dm_content type i value 20971520 ##NO_TEXT.
+    CONSTANTS c_max_dm_content TYPE i VALUE 20971520 ##NO_TEXT.
+    "! One workbook import accepts at most this many workbooks
+    CONSTANTS c_max_workbooks TYPE i VALUE 500 ##NO_TEXT.
+    "! and this much decoded workbook content (50 MB); .xlsm reports are large.
+    CONSTANTS c_max_workbook_content TYPE i VALUE 52428800 ##NO_TEXT.
 
     "! Sends 405 unless the request uses the expected method.
-    methods require_method
-      importing iv_method type string
-      returning value(rv_allowed) type abap_bool.
+    METHODS require_method
+      IMPORTING iv_method TYPE string
+      RETURNING VALUE(rv_allowed) TYPE abap_bool.
     "! Read and validate the environment, model or script name of a request.
     "! An invalid value is answered with 400 and returned as initial.
-    methods read_environment
-      returning value(rv_environment) type uj_appset_id.
-    methods read_model
-      returning value(rv_model) type uj_appl_id.
-    methods read_script_name
-      returning value(rv_name) type uj_docname.
-    methods read_group
-      returning value(rv_group) type uj_pack_grp_id.
-    methods read_package
-      returning value(rv_package) type uj_package_id.
-    methods read_dm_name
-      returning value(rv_name) type uj_docname.
-    methods handle_environments
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_models
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_scripts
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_script
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_packages
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_package
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
+    METHODS read_environment
+      RETURNING VALUE(rv_environment) TYPE uj_appset_id.
+    METHODS read_model
+      RETURNING VALUE(rv_model) TYPE uj_appl_id.
+    METHODS read_script_name
+      RETURNING VALUE(rv_name) TYPE uj_docname.
+    METHODS read_group
+      RETURNING VALUE(rv_group) TYPE uj_pack_grp_id.
+    METHODS read_package
+      RETURNING VALUE(rv_package) TYPE uj_package_id.
+    METHODS read_dm_name
+      RETURNING VALUE(rv_name) TYPE uj_docname.
+    METHODS handle_environments
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_models
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_scripts
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_script
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_packages
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_package
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
     "! Reads the uploaded Data Manager Packages and writes them into the model.
-    methods handle_import_packages
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
+    METHODS handle_import_packages
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
     "! Reads the uploaded Logic Scripts and writes them into the given model.
-    methods handle_import
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_transformations
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_transformation
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_import_transformations
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_conversions
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_conversion
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
-    methods handle_import_conversions
-      importing io_service type ref to zcl_bpc_io_service
-      raising cx_uj_static_check.
+    METHODS handle_import
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_transformations
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_transformation
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_import_transformations
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_conversions
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_conversion
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_import_conversions
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
     "! Shared writer for transformation and conversion file imports.
-    methods handle_import_dm
-      importing io_service type ref to zcl_bpc_io_service
-                iv_ext type string
-      raising cx_uj_static_check.
-    methods respond
-      importing iv_code type i iv_reason type string iv_json type string
-                iv_allow type string optional.
-    methods respond_error
-      importing iv_code type i iv_reason type string iv_message type string
-                iv_allow type string optional.
+    METHODS handle_import_dm
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+                iv_ext TYPE string
+      RAISING cx_uj_static_check.
+    METHODS handle_workbooks
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_workbook
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_import_workbooks
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    "! Reads and validates the workbook library token ('REPORT' / 'SCHEDULE').
+    METHODS read_folder
+      RETURNING VALUE(rv_folder) TYPE string.
+    METHODS respond
+      IMPORTING iv_code TYPE i iv_reason TYPE string iv_json TYPE string
+                iv_allow TYPE string OPTIONAL.
+    METHODS respond_error
+      IMPORTING iv_code TYPE i iv_reason TYPE string iv_message TYPE string
+                iv_allow TYPE string OPTIONAL.
     "! JSON string literal, without the padding of fixed length fields.
-    methods quote
-      importing iv_value type clike
-      returning value(rv_json) type string.
-endclass.
+    METHODS quote
+      IMPORTING iv_value TYPE clike
+      RETURNING VALUE(rv_json) TYPE string.
+ENDCLASS.
 
-class zcl_bpc_io_http implementation.
-  method if_http_extension~handle_request.
+CLASS zcl_bpc_io_http IMPLEMENTATION.
+  METHOD if_http_extension~handle_request.
     mo_server = server.
     server->response->set_content_type( 'application/json; charset=utf-8' ).
     server->response->set_header_field( name = 'Cache-Control' value = 'no-store' ).
     server->response->set_header_field( name = 'X-Content-Type-Options' value = 'nosniff' ).
 
-    data(lv_path) = server->request->get_header_field( '~path_info' ).
-    replace regex '/$' in lv_path with ''.
-    try.
-        data(lo_service) = new zcl_bpc_io_service( ).
-        case lv_path.
-          when c_resource-environments.
-            if require_method( c_method-get ).
+    DATA(lv_path) = server->request->get_header_field( '~path_info' ).
+    REPLACE REGEX '/$' IN lv_path WITH ''.
+    TRY.
+        DATA(lo_service) = NEW zcl_bpc_io_service( ).
+        CASE lv_path.
+          WHEN c_resource-environments.
+            IF require_method( c_method-get ).
               handle_environments( lo_service ).
-            endif.
-          when c_resource-models.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-models.
+            IF require_method( c_method-get ).
               handle_models( lo_service ).
-            endif.
-          when c_resource-scripts.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-scripts.
+            IF require_method( c_method-get ).
               handle_scripts( lo_service ).
-            endif.
-          when c_resource-script.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-script.
+            IF require_method( c_method-get ).
               handle_script( lo_service ).
-            endif.
-          when c_resource-packages.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-packages.
+            IF require_method( c_method-get ).
               handle_packages( lo_service ).
-            endif.
-          when c_resource-package.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-package.
+            IF require_method( c_method-get ).
               handle_package( lo_service ).
-            endif.
-          when c_resource-packages_import.
-            if require_method( c_method-post ).
+            ENDIF.
+          WHEN c_resource-packages_import.
+            IF require_method( c_method-post ).
               handle_import_packages( lo_service ).
-            endif.
-          when c_resource-import.
-            if require_method( c_method-post ).
+            ENDIF.
+          WHEN c_resource-import.
+            IF require_method( c_method-post ).
               handle_import( lo_service ).
-            endif.
-          when c_resource-transformations.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-transformations.
+            IF require_method( c_method-get ).
               handle_transformations( lo_service ).
-            endif.
-          when c_resource-transformation.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-transformation.
+            IF require_method( c_method-get ).
               handle_transformation( lo_service ).
-            endif.
-          when c_resource-transforms_import.
-            if require_method( c_method-post ).
+            ENDIF.
+          WHEN c_resource-transforms_import.
+            IF require_method( c_method-post ).
               handle_import_transformations( lo_service ).
-            endif.
-          when c_resource-conversions.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-conversions.
+            IF require_method( c_method-get ).
               handle_conversions( lo_service ).
-            endif.
-          when c_resource-conversion.
-            if require_method( c_method-get ).
+            ENDIF.
+          WHEN c_resource-conversion.
+            IF require_method( c_method-get ).
               handle_conversion( lo_service ).
-            endif.
-          when c_resource-convers_import.
-            if require_method( c_method-post ).
+            ENDIF.
+          WHEN c_resource-convers_import.
+            IF require_method( c_method-post ).
               handle_import_conversions( lo_service ).
-            endif.
-          when others.
+            ENDIF.
+          WHEN c_resource-workbooks.
+            IF require_method( c_method-get ).
+              handle_workbooks( lo_service ).
+            ENDIF.
+          WHEN c_resource-workbook.
+            IF require_method( c_method-get ).
+              handle_workbook( lo_service ).
+            ENDIF.
+          WHEN c_resource-workbooks_import.
+            IF require_method( c_method-post ).
+              handle_import_workbooks( lo_service ).
+            ENDIF.
+          WHEN OTHERS.
             respond_error( iv_code = 404 iv_reason = 'Not Found'
                            iv_message = 'Unknown resource' ).
-        endcase.
-      catch cx_uj_input_error into data(lx_input).
+        ENDCASE.
+      CATCH cx_uj_input_error INTO DATA(lx_input).
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = lx_input->get_text( ) ).
-      catch cx_uj_no_auth.
+      CATCH cx_uj_no_auth.
         respond_error( iv_code = 403 iv_reason = 'Forbidden'
                        iv_message = 'BPC access denied' ).
-      catch cx_uj_static_check.
+      CATCH cx_uj_static_check.
         respond_error(
           iv_code = 500 iv_reason = 'Internal Server Error'
-          iv_message = cond #( when lv_path = c_resource-import
-                               then 'Cannot write BPC Logic Scripts'
-                               when lv_path = c_resource-packages_import
-                               then 'Cannot write BPC Data Manager Packages'
-                               when lv_path = c_resource-transforms_import
-                               then 'Cannot write BPC transformation files'
-                               when lv_path = c_resource-convers_import
-                               then 'Cannot write BPC conversion files'
-                               else 'Cannot load BPC metadata' ) ).
-    endtry.
-  endmethod.
+          iv_message = COND #( WHEN lv_path = c_resource-import
+                               THEN 'Cannot write BPC Logic Scripts'
+                               WHEN lv_path = c_resource-packages_import
+                               THEN 'Cannot write BPC Data Manager Packages'
+                               WHEN lv_path = c_resource-transforms_import
+                               THEN 'Cannot write BPC transformation files'
+                               WHEN lv_path = c_resource-convers_import
+                               THEN 'Cannot write BPC conversion files'
+                               WHEN lv_path = c_resource-workbooks_import
+                               THEN 'Cannot write BPC workbooks'
+                               ELSE 'Cannot load BPC metadata' ) ).
+    ENDTRY.
+  ENDMETHOD.
 
-  method handle_environments.
-    data(lt_environments) = io_service->get_environments( ).
-    data lv_json type string.
-    data lv_separator type string.
+  METHOD handle_environments.
+    DATA(lt_environments) = io_service->get_environments( ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"environments":[`.
-    loop at lt_environments into data(ls_environment).
+    LOOP AT lt_environments INTO DATA(ls_environment).
       lv_json = lv_json && lv_separator && `{"id":` && quote( ls_environment-id ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_models.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lt_models) = io_service->get_models( lv_environment_id ).
-    data lv_json type string.
-    data lv_separator type string.
+  METHOD handle_models.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_models) = io_service->get_models( lv_environment_id ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"models":[`.
-    loop at lt_models into data(ls_model).
+    LOOP AT lt_models INTO DATA(ls_model).
       lv_json = lv_json && lv_separator && `{"id":` && quote( ls_model-id ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_scripts.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lt_scripts) = io_service->get_scripts(
+  METHOD handle_scripts.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_scripts) = io_service->get_scripts(
       iv_environment = lv_environment_id iv_model = lv_model_id ).
-    data lv_json type string.
-    data lv_separator type string.
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"scripts":[`.
-    loop at lt_scripts into data(ls_script).
+    LOOP AT lt_scripts INTO DATA(ls_script).
       lv_json = lv_json && lv_separator && `{"name":` && quote( ls_script-name ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_script.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_script_name) = read_script_name( ).
-    if lv_script_name is initial.
-      return.
-    endif.
-    data(ls_content) = io_service->get_script(
+  METHOD handle_script.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_script_name) = read_script_name( ).
+    IF lv_script_name IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(ls_content) = io_service->get_script(
       iv_environment = lv_environment_id iv_model = lv_model_id iv_name = lv_script_name ).
-    if ls_content-name is initial.
+    IF ls_content-name IS INITIAL.
       respond_error( iv_code = 404 iv_reason = 'Not Found'
                      iv_message = 'Script not found' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"name":` && quote( ls_content-name ) &&
         `,"content":"` && cl_http_utility=>encode_x_base64( ls_content-content ) &&
         `","byteLength":` && |{ xstrlen( ls_content-content ) }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_import.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_count) = mo_server->request->get_form_field( 'count' ).
-    if lv_count is initial or strlen( lv_count ) > 4 or not lv_count co '0123456789'.
+  METHOD handle_import.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'count' ).
+    IF lv_count IS INITIAL OR strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789'.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid number of scripts is required' ).
-      return.
-    endif.
-    data lv_number type i.
+      RETURN.
+    ENDIF.
+    DATA lv_number TYPE i.
     lv_number = lv_count.
-    if lv_number > c_max_scripts.
+    IF lv_number > c_max_scripts.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = |At most { c_max_scripts } scripts can be imported at once| ).
-      return.
-    endif.
-    data: ls_import type zcl_bpc_io_service=>ty_import,
-          lt_imports type zcl_bpc_io_service=>ty_imports,
-          lv_index type i,
-          lv_name type string,
-          lv_base64 type string,
-          lv_total type i.
-    do lv_number times.
+      RETURN.
+    ENDIF.
+    DATA: ls_import TYPE zcl_bpc_io_service=>ty_import,
+          lt_imports TYPE zcl_bpc_io_service=>ty_imports,
+          lv_index TYPE i,
+          lv_name TYPE string,
+          lv_base64 TYPE string,
+          lv_total TYPE i.
+    DO lv_number TIMES.
       lv_index = sy-index.
       lv_name = mo_server->request->get_form_field( |name{ lv_index }| ).
       lv_base64 = mo_server->request->get_form_field( |content{ lv_index }| ).
-      if lv_name is initial.
+      IF lv_name IS INITIAL.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = 'A valid script name is required' ).
-        return.
-      endif.
-      clear ls_import.
+        RETURN.
+      ENDIF.
+      CLEAR ls_import.
       ls_import-name = lv_name.
-      try.
+      TRY.
           ls_import-content = cl_http_utility=>decode_x_base64( lv_base64 ).
-        catch cx_root.
+        CATCH cx_root.
           respond_error( iv_code = 400 iv_reason = 'Bad Request'
                          iv_message = |Invalid Base64 content for { lv_name }| ).
-          return.
-      endtry.
-      if cl_http_utility=>encode_x_base64( ls_import-content ) <> lv_base64.
+          RETURN.
+      ENDTRY.
+      IF cl_http_utility=>encode_x_base64( ls_import-content ) <> lv_base64.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = |Invalid Base64 content for { lv_name }| ).
-        return.
-      endif.
+        RETURN.
+      ENDIF.
       lv_total = lv_total + xstrlen( ls_import-content ).
-      if lv_total > c_max_content.
+      IF lv_total > c_max_content.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = 'The import exceeds 20 MB of script content' ).
-        return.
-      endif.
-      append ls_import to lt_imports.
-    enddo.
-    data(lv_replace) = mo_server->request->get_form_field( 'replace' ).
-    data(lt_results) = io_service->import_scripts(
+        RETURN.
+      ENDIF.
+      APPEND ls_import TO lt_imports.
+    ENDDO.
+    DATA(lv_replace) = mo_server->request->get_form_field( 'replace' ).
+    DATA(lt_results) = io_service->import_scripts(
       iv_environment = lv_environment_id iv_model = lv_model_id it_scripts = lt_imports
-      iv_replace = boolc( lv_replace is not initial ) ).
-    data lv_json type string.
-    data lv_separator type string.
-    data: lv_changed type i, lv_skipped type i, lv_failed type i.
-    loop at lt_results into data(ls_result).
+      iv_replace = boolc( lv_replace IS NOT INITIAL ) ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    DATA: lv_changed TYPE i, lv_skipped TYPE i, lv_failed TYPE i.
+    LOOP AT lt_results INTO DATA(ls_result).
       lv_json = lv_json && lv_separator && `{"name":` && quote( ls_result-name ) &&
         `,"action":` && quote( ls_result-action ) &&
         `,"message":` && quote( ls_result-message ) && `}`.
       lv_separator = ','.
-      case ls_result-action.
-        when zcl_bpc_io_service=>c_action-written or zcl_bpc_io_service=>c_action-replaced.
+      CASE ls_result-action.
+        WHEN zcl_bpc_io_service=>c_action-written OR zcl_bpc_io_service=>c_action-replaced.
           lv_changed = lv_changed + 1.
-        when zcl_bpc_io_service=>c_action-failed.
+        WHEN zcl_bpc_io_service=>c_action-failed.
           lv_failed = lv_failed + 1.
-        when others.
+        WHEN OTHERS.
           lv_skipped = lv_skipped + 1.
-      endcase.
-    endloop.
+      ENDCASE.
+    ENDLOOP.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
         `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_packages.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lt_packages) = io_service->get_packages(
+  METHOD handle_packages.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_packages) = io_service->get_packages(
       iv_environment = lv_environment_id iv_model = lv_model_id ).
-    data lv_json type string.
-    data lv_separator type string.
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"packages":[`.
-    loop at lt_packages into data(ls_package).
+    LOOP AT lt_packages INTO DATA(ls_package).
       lv_json = lv_json && lv_separator && `{"group":` && quote( ls_package-group ) &&
         `,"id":` && quote( ls_package-id ) &&
         `,"description":` && quote( ls_package-descr ) &&
@@ -397,28 +430,28 @@ class zcl_bpc_io_http implementation.
         `,"chain":` && quote( ls_package-chain ) &&
         `,"team":` && quote( ls_package-team ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_package.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_group) = read_group( ).
-    if lv_group is initial.
-      return.
-    endif.
-    data(lv_package) = read_package( ).
-    if lv_package is initial.
-      return.
-    endif.
-    data(ls_package) = io_service->get_package(
+  METHOD handle_package.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_group) = read_group( ).
+    IF lv_group IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_package) = read_package( ).
+    IF lv_package IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(ls_package) = io_service->get_package(
       iv_environment = lv_environment_id iv_model = lv_model_id
       iv_group = lv_group iv_package = lv_package ).
     respond(
@@ -431,125 +464,125 @@ class zcl_bpc_io_http implementation.
         `,"chain":` && quote( ls_package-chain ) &&
         `,"team":` && quote( ls_package-team ) &&
         `,"script":` && quote( ls_package-script ) && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_import_packages.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_count) = mo_server->request->get_form_field( 'count' ).
-    if lv_count is initial or strlen( lv_count ) > 4 or not lv_count co '0123456789'.
+  METHOD handle_import_packages.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'count' ).
+    IF lv_count IS INITIAL OR strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789'.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid number of packages is required' ).
-      return.
-    endif.
-    data lv_number type i.
+      RETURN.
+    ENDIF.
+    DATA lv_number TYPE i.
     lv_number = lv_count.
-    if lv_number > c_max_packages.
+    IF lv_number > c_max_packages.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = |At most { c_max_packages } packages can be imported at once| ).
-      return.
-    endif.
-    data: ls_package type zcl_bpc_io_service=>ty_package_import,
-          lt_packages type zcl_bpc_io_service=>ty_package_imports,
-          lv_index type i.
-    do lv_number times.
+      RETURN.
+    ENDIF.
+    DATA: ls_package TYPE zcl_bpc_io_service=>ty_package_import,
+          lt_packages TYPE zcl_bpc_io_service=>ty_package_imports,
+          lv_index TYPE i.
+    DO lv_number TIMES.
       lv_index = sy-index.
-      clear ls_package.
+      CLEAR ls_package.
       ls_package-group = mo_server->request->get_form_field( |group{ lv_index }| ).
       ls_package-id = mo_server->request->get_form_field( |id{ lv_index }| ).
-      if ls_package-group is initial or ls_package-id is initial.
+      IF ls_package-group IS INITIAL OR ls_package-id IS INITIAL.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = 'A valid group and id are required' ).
-        return.
-      endif.
+        RETURN.
+      ENDIF.
       ls_package-descr = mo_server->request->get_form_field( |description{ lv_index }| ).
       ls_package-type = mo_server->request->get_form_field( |type{ lv_index }| ).
       ls_package-user_group = mo_server->request->get_form_field( |userGroup{ lv_index }| ).
       ls_package-chain = mo_server->request->get_form_field( |chain{ lv_index }| ).
       ls_package-team = mo_server->request->get_form_field( |team{ lv_index }| ).
       ls_package-script = mo_server->request->get_form_field( |script{ lv_index }| ).
-      if strlen( ls_package-script ) > c_max_package_content.
+      IF strlen( ls_package-script ) > c_max_package_content.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = |Package { ls_package-id } exceeds the script size limit| ).
-        return.
-      endif.
-      append ls_package to lt_packages.
-    enddo.
-    data(lv_replace) = mo_server->request->get_form_field( 'replace' ).
-    data(lt_results) = io_service->import_packages(
+        RETURN.
+      ENDIF.
+      APPEND ls_package TO lt_packages.
+    ENDDO.
+    DATA(lv_replace) = mo_server->request->get_form_field( 'replace' ).
+    DATA(lt_results) = io_service->import_packages(
       iv_environment = lv_environment_id iv_model = lv_model_id it_packages = lt_packages
-      iv_replace = boolc( lv_replace is not initial ) ).
-    data lv_json type string.
-    data lv_separator type string.
-    data: lv_changed type i, lv_skipped type i, lv_failed type i.
-    loop at lt_results into data(ls_result).
+      iv_replace = boolc( lv_replace IS NOT INITIAL ) ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    DATA: lv_changed TYPE i, lv_skipped TYPE i, lv_failed TYPE i.
+    LOOP AT lt_results INTO DATA(ls_result).
       lv_json = lv_json && lv_separator && `{"group":` && quote( ls_result-group ) &&
         `,"id":` && quote( ls_result-id ) &&
         `,"action":` && quote( ls_result-action ) &&
         `,"message":` && quote( ls_result-message ) && `}`.
       lv_separator = ','.
-      case ls_result-action.
-        when zcl_bpc_io_service=>c_action-written or zcl_bpc_io_service=>c_action-replaced.
+      CASE ls_result-action.
+        WHEN zcl_bpc_io_service=>c_action-written OR zcl_bpc_io_service=>c_action-replaced.
           lv_changed = lv_changed + 1.
-        when zcl_bpc_io_service=>c_action-failed.
+        WHEN zcl_bpc_io_service=>c_action-failed.
           lv_failed = lv_failed + 1.
-        when others.
+        WHEN OTHERS.
           lv_skipped = lv_skipped + 1.
-      endcase.
-    endloop.
+      ENDCASE.
+    ENDLOOP.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
         `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_transformations.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lt_files) = io_service->get_transformations(
+  METHOD handle_transformations.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_files) = io_service->get_transformations(
       iv_environment = lv_environment_id iv_model = lv_model_id ).
-    data lv_json type string.
-    data lv_separator type string.
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"transformations":[`.
-    loop at lt_files into data(ls_file).
+    LOOP AT lt_files INTO DATA(ls_file).
       lv_json = lv_json && lv_separator && `{"name":` && quote( ls_file-name ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_transformation.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_name) = read_dm_name( ).
-    if lv_name is initial.
-      return.
-    endif.
-    data(ls_file) = io_service->get_transformation(
+  METHOD handle_transformation.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_name) = read_dm_name( ).
+    IF lv_name IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(ls_file) = io_service->get_transformation(
       iv_environment = lv_environment_id iv_model = lv_model_id iv_name = lv_name ).
-    if ls_file-name is initial.
+    IF ls_file-name IS INITIAL.
       respond_error( iv_code = 404 iv_reason = 'Not Found'
                      iv_message = 'Transformation file not found' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"name":` && quote( ls_file-name ) &&
@@ -557,49 +590,49 @@ class zcl_bpc_io_http implementation.
         `","byteLength":` && |{ xstrlen( ls_file-content ) }| &&
         `,"workbook":"` && cl_http_utility=>encode_x_base64( ls_file-workbook ) &&
         `","workbookByteLength":` && |{ xstrlen( ls_file-workbook ) }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_conversions.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lt_files) = io_service->get_conversions(
+  METHOD handle_conversions.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_files) = io_service->get_conversions(
       iv_environment = lv_environment_id iv_model = lv_model_id ).
-    data lv_json type string.
-    data lv_separator type string.
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
     lv_json = `{"conversions":[`.
-    loop at lt_files into data(ls_file).
+    LOOP AT lt_files INTO DATA(ls_file).
       lv_json = lv_json && lv_separator && `{"name":` && quote( ls_file-name ) && `}`.
       lv_separator = ','.
-    endloop.
+    ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_conversion.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_name) = read_dm_name( ).
-    if lv_name is initial.
-      return.
-    endif.
-    data(ls_file) = io_service->get_conversion(
+  METHOD handle_conversion.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_name) = read_dm_name( ).
+    IF lv_name IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(ls_file) = io_service->get_conversion(
       iv_environment = lv_environment_id iv_model = lv_model_id iv_name = lv_name ).
-    if ls_file-name is initial.
+    IF ls_file-name IS INITIAL.
       respond_error( iv_code = 404 iv_reason = 'Not Found'
                      iv_message = 'Conversion file not found' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"name":` && quote( ls_file-name ) &&
@@ -607,212 +640,371 @@ class zcl_bpc_io_http implementation.
         `","byteLength":` && |{ xstrlen( ls_file-content ) }| &&
         `,"workbook":"` && cl_http_utility=>encode_x_base64( ls_file-workbook ) &&
         `","workbookByteLength":` && |{ xstrlen( ls_file-workbook ) }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_import_transformations.
+  METHOD handle_import_transformations.
     handle_import_dm( io_service = io_service iv_ext = '.TDM' ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_import_conversions.
+  METHOD handle_import_conversions.
     handle_import_dm( io_service = io_service iv_ext = '.CDM' ).
-  endmethod.
+  ENDMETHOD.
 
-  method handle_import_dm.
-    data(lv_environment_id) = read_environment( ).
-    if lv_environment_id is initial.
-      return.
-    endif.
-    data(lv_model_id) = read_model( ).
-    if lv_model_id is initial.
-      return.
-    endif.
-    data(lv_count) = mo_server->request->get_form_field( 'count' ).
-    if lv_count is initial or strlen( lv_count ) > 4 or not lv_count co '0123456789'.
+  METHOD handle_import_dm.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'count' ).
+    IF lv_count IS INITIAL OR strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789'.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid number of files is required' ).
-      return.
-    endif.
-    data lv_number type i.
+      RETURN.
+    ENDIF.
+    DATA lv_number TYPE i.
     lv_number = lv_count.
-    if lv_number > c_max_dm_files.
+    IF lv_number > c_max_dm_files.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = |At most { c_max_dm_files } files can be imported at once| ).
-      return.
-    endif.
-    data: ls_file type zcl_bpc_io_service=>ty_dm_import,
-          lt_files type zcl_bpc_io_service=>ty_dm_imports,
-          lv_index type i,
-          lv_name type string,
-          lv_base64 type string,
-          lv_workbook64 type string,
-          lv_total type i.
-    do lv_number times.
+      RETURN.
+    ENDIF.
+    DATA: ls_file TYPE zcl_bpc_io_service=>ty_dm_import,
+          lt_files TYPE zcl_bpc_io_service=>ty_dm_imports,
+          lv_index TYPE i,
+          lv_name TYPE string,
+          lv_base64 TYPE string,
+          lv_workbook64 TYPE string,
+          lv_total TYPE i.
+    DO lv_number TIMES.
       lv_index = sy-index.
       lv_name = mo_server->request->get_form_field( |name{ lv_index }| ).
       lv_base64 = mo_server->request->get_form_field( |content{ lv_index }| ).
       lv_workbook64 = mo_server->request->get_form_field( |workbook{ lv_index }| ).
-      if lv_name is initial.
+      IF lv_name IS INITIAL.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = 'A valid file name is required' ).
-        return.
-      endif.
-      clear ls_file.
+        RETURN.
+      ENDIF.
+      CLEAR ls_file.
       ls_file-name = lv_name.
-      try.
+      TRY.
           ls_file-content = cl_http_utility=>decode_x_base64( lv_base64 ).
-        catch cx_root.
+        CATCH cx_root.
           respond_error( iv_code = 400 iv_reason = 'Bad Request'
                          iv_message = |Invalid Base64 content for { lv_name }| ).
-          return.
-      endtry.
-      if lv_workbook64 is not initial.
-        try.
+          RETURN.
+      ENDTRY.
+      IF lv_workbook64 IS NOT INITIAL.
+        TRY.
             ls_file-workbook = cl_http_utility=>decode_x_base64( lv_workbook64 ).
-          catch cx_root.
+          CATCH cx_root.
             respond_error( iv_code = 400 iv_reason = 'Bad Request'
                            iv_message = |Invalid Base64 workbook for { lv_name }| ).
-            return.
-        endtry.
-      endif.
+            RETURN.
+        ENDTRY.
+      ENDIF.
       lv_total = lv_total + xstrlen( ls_file-content ) + xstrlen( ls_file-workbook ).
-      if lv_total > c_max_dm_content.
+      IF lv_total > c_max_dm_content.
         respond_error( iv_code = 400 iv_reason = 'Bad Request'
                        iv_message = 'The import exceeds 20 MB of file content' ).
-        return.
-      endif.
-      append ls_file to lt_files.
-    enddo.
-    data(lv_replace) = mo_server->request->get_form_field( 'replace' ).
-    data lt_results type zcl_bpc_io_service=>ty_dm_imports.
-    if iv_ext = '.TDM'.
+        RETURN.
+      ENDIF.
+      APPEND ls_file TO lt_files.
+    ENDDO.
+    DATA(lv_replace) = mo_server->request->get_form_field( 'replace' ).
+    DATA lt_results TYPE zcl_bpc_io_service=>ty_dm_imports.
+    IF iv_ext = '.TDM'.
       lt_results = io_service->import_transformations(
         iv_environment = lv_environment_id iv_model = lv_model_id
-        it_files = lt_files iv_replace = boolc( lv_replace is not initial ) ).
-    else.
+        it_files = lt_files iv_replace = boolc( lv_replace IS NOT INITIAL ) ).
+    ELSE.
       lt_results = io_service->import_conversions(
         iv_environment = lv_environment_id iv_model = lv_model_id
-        it_files = lt_files iv_replace = boolc( lv_replace is not initial ) ).
-    endif.
-    data lv_json type string.
-    data lv_separator type string.
-    data: lv_changed type i, lv_skipped type i, lv_failed type i.
-    loop at lt_results into data(ls_result).
+        it_files = lt_files iv_replace = boolc( lv_replace IS NOT INITIAL ) ).
+    ENDIF.
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    DATA: lv_changed TYPE i, lv_skipped TYPE i, lv_failed TYPE i.
+    LOOP AT lt_results INTO DATA(ls_result).
       lv_json = lv_json && lv_separator && `{"name":` && quote( ls_result-name ) &&
         `,"action":` && quote( ls_result-action ) &&
         `,"message":` && quote( ls_result-message ) && `}`.
       lv_separator = ','.
-      case ls_result-action.
-        when zcl_bpc_io_service=>c_action-written or zcl_bpc_io_service=>c_action-replaced.
+      CASE ls_result-action.
+        WHEN zcl_bpc_io_service=>c_action-written OR zcl_bpc_io_service=>c_action-replaced.
           lv_changed = lv_changed + 1.
-        when zcl_bpc_io_service=>c_action-failed.
+        WHEN zcl_bpc_io_service=>c_action-failed.
           lv_failed = lv_failed + 1.
-        when others.
+        WHEN OTHERS.
           lv_skipped = lv_skipped + 1.
-      endcase.
-    endloop.
+      ENDCASE.
+    ENDLOOP.
     respond(
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
         `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method read_dm_name.
-    data(lv_name) = mo_server->request->get_form_field( 'name' ).
-    data lv_dm_name type uj_docname.
-    describe field lv_dm_name length data(lv_length) in character mode.
-    if lv_name is initial or strlen( lv_name ) > lv_length.
+  METHOD handle_workbooks.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_files) = io_service->get_workbooks(
+      iv_environment = lv_environment_id iv_model = lv_model_id ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    lv_json = `{"workbooks":[`.
+    LOOP AT lt_files INTO DATA(ls_file).
+      lv_json = lv_json && lv_separator && `{"name":` && quote( ls_file-name ) &&
+        `,"folder":` && quote( ls_file-folder ) && `}`.
+      lv_separator = ','.
+    ENDLOOP.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
+  ENDMETHOD.
+
+  METHOD handle_workbook.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_folder) = read_folder( ).
+    IF lv_folder IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_name) = read_dm_name( ).
+    IF lv_name IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(ls_file) = io_service->get_workbook(
+      iv_environment = lv_environment_id iv_model = lv_model_id
+      iv_folder = lv_folder iv_name = lv_name ).
+    IF ls_file-name IS INITIAL.
+      respond_error( iv_code = 404 iv_reason = 'Not Found'
+                     iv_message = 'Workbook not found' ).
+      RETURN.
+    ENDIF.
+    respond(
+      iv_code = 200 iv_reason = 'OK'
+      iv_json = `{"name":` && quote( ls_file-name ) &&
+        `,"folder":` && quote( ls_file-folder ) &&
+        `,"content":"` && cl_http_utility=>encode_x_base64( ls_file-content ) &&
+        `","byteLength":` && |{ xstrlen( ls_file-content ) }| && `}` ).
+  ENDMETHOD.
+
+  METHOD handle_import_workbooks.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'count' ).
+    IF lv_count IS INITIAL OR strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789'.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid number of workbooks is required' ).
+      RETURN.
+    ENDIF.
+    DATA lv_number TYPE i.
+    lv_number = lv_count.
+    IF lv_number > c_max_workbooks.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = |At most { c_max_workbooks } workbooks can be imported at once| ).
+      RETURN.
+    ENDIF.
+    DATA: ls_file TYPE zcl_bpc_io_service=>ty_workbook_import,
+          lt_files TYPE zcl_bpc_io_service=>ty_workbook_imports,
+          lv_index TYPE i,
+          lv_name TYPE string,
+          lv_folder TYPE string,
+          lv_base64 TYPE string,
+          lv_total TYPE i.
+    DO lv_number TIMES.
+      lv_index = sy-index.
+      lv_name = mo_server->request->get_form_field( |name{ lv_index }| ).
+      lv_folder = to_upper( mo_server->request->get_form_field( |folder{ lv_index }| ) ).
+      lv_base64 = mo_server->request->get_form_field( |content{ lv_index }| ).
+      IF lv_name IS INITIAL.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'A valid workbook name is required' ).
+        RETURN.
+      ENDIF.
+      IF lv_folder <> 'REPORT' AND lv_folder <> 'SCHEDULE'.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = |A valid library (REPORT or SCHEDULE) is required for { lv_name }| ).
+        RETURN.
+      ENDIF.
+      CLEAR ls_file.
+      ls_file-name = lv_name.
+      ls_file-folder = lv_folder.
+      TRY.
+          ls_file-content = cl_http_utility=>decode_x_base64( lv_base64 ).
+        CATCH cx_root.
+          respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                         iv_message = |Invalid Base64 content for { lv_name }| ).
+          RETURN.
+      ENDTRY.
+      IF cl_http_utility=>encode_x_base64( ls_file-content ) <> lv_base64.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = |Invalid Base64 content for { lv_name }| ).
+        RETURN.
+      ENDIF.
+      lv_total = lv_total + xstrlen( ls_file-content ).
+      IF lv_total > c_max_workbook_content.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'The import exceeds 50 MB of workbook content' ).
+        RETURN.
+      ENDIF.
+      APPEND ls_file TO lt_files.
+    ENDDO.
+    DATA(lv_replace) = mo_server->request->get_form_field( 'replace' ).
+    DATA(lt_results) = io_service->import_workbooks(
+      iv_environment = lv_environment_id iv_model = lv_model_id it_files = lt_files
+      iv_replace = boolc( lv_replace IS NOT INITIAL ) ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    DATA: lv_changed TYPE i, lv_skipped TYPE i, lv_failed TYPE i.
+    LOOP AT lt_results INTO DATA(ls_result).
+      lv_json = lv_json && lv_separator && `{"name":` && quote( ls_result-name ) &&
+        `,"folder":` && quote( ls_result-folder ) &&
+        `,"action":` && quote( ls_result-action ) &&
+        `,"message":` && quote( ls_result-message ) && `}`.
+      lv_separator = ','.
+      CASE ls_result-action.
+        WHEN zcl_bpc_io_service=>c_action-written OR zcl_bpc_io_service=>c_action-replaced.
+          lv_changed = lv_changed + 1.
+        WHEN zcl_bpc_io_service=>c_action-failed.
+          lv_failed = lv_failed + 1.
+        WHEN OTHERS.
+          lv_skipped = lv_skipped + 1.
+      ENDCASE.
+    ENDLOOP.
+    respond(
+      iv_code = 200 iv_reason = 'OK'
+      iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
+        `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
+  ENDMETHOD.
+
+  METHOD read_folder.
+    DATA(lv_folder) = to_upper( mo_server->request->get_form_field( 'folder' ) ).
+    IF lv_folder <> 'REPORT' AND lv_folder <> 'SCHEDULE'.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid library (REPORT or SCHEDULE) is required' ).
+      RETURN.
+    ENDIF.
+    rv_folder = lv_folder.
+  ENDMETHOD.
+
+  METHOD read_dm_name.
+    DATA(lv_name) = mo_server->request->get_form_field( 'name' ).
+    DATA lv_dm_name TYPE uj_docname.
+    DESCRIBE FIELD lv_dm_name LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_name IS INITIAL OR strlen( lv_name ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid file name is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_name = lv_name.
-  endmethod.
+  ENDMETHOD.
 
-  method read_environment.
-    data(lv_environment) = mo_server->request->get_form_field( 'environment' ).
-    data lv_environment_id type uj_appset_id.
-    describe field lv_environment_id length data(lv_length) in character mode.
-    if lv_environment is initial or strlen( lv_environment ) > lv_length.
+  METHOD read_environment.
+    DATA(lv_environment) = mo_server->request->get_form_field( 'environment' ).
+    DATA lv_environment_id TYPE uj_appset_id.
+    DESCRIBE FIELD lv_environment_id LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_environment IS INITIAL OR strlen( lv_environment ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid environment is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_environment = lv_environment.
-  endmethod.
+  ENDMETHOD.
 
-  method read_model.
-    data(lv_model) = mo_server->request->get_form_field( 'model' ).
-    data lv_model_id type uj_appl_id.
-    describe field lv_model_id length data(lv_length) in character mode.
-    if lv_model is initial or strlen( lv_model ) > lv_length.
+  METHOD read_model.
+    DATA(lv_model) = mo_server->request->get_form_field( 'model' ).
+    DATA lv_model_id TYPE uj_appl_id.
+    DESCRIBE FIELD lv_model_id LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_model IS INITIAL OR strlen( lv_model ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid model is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_model = lv_model.
-  endmethod.
+  ENDMETHOD.
 
-  method read_script_name.
-    data(lv_name) = mo_server->request->get_form_field( 'name' ).
-    data lv_script_name type uj_docname.
-    describe field lv_script_name length data(lv_length) in character mode.
-    if lv_name is initial or strlen( lv_name ) > lv_length.
+  METHOD read_script_name.
+    DATA(lv_name) = mo_server->request->get_form_field( 'name' ).
+    DATA lv_script_name TYPE uj_docname.
+    DESCRIBE FIELD lv_script_name LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_name IS INITIAL OR strlen( lv_name ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid script name is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_name = lv_name.
-  endmethod.
+  ENDMETHOD.
 
-  method read_group.
-    data(lv_group) = mo_server->request->get_form_field( 'group' ).
-    data lv_group_id type uj_pack_grp_id.
-    describe field lv_group_id length data(lv_length) in character mode.
-    if lv_group is initial or strlen( lv_group ) > lv_length.
+  METHOD read_group.
+    DATA(lv_group) = mo_server->request->get_form_field( 'group' ).
+    DATA lv_group_id TYPE uj_pack_grp_id.
+    DESCRIBE FIELD lv_group_id LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_group IS INITIAL OR strlen( lv_group ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid group is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_group = lv_group.
-  endmethod.
+  ENDMETHOD.
 
-  method read_package.
-    data(lv_package) = mo_server->request->get_form_field( 'id' ).
-    data lv_package_id type uj_package_id.
-    describe field lv_package_id length data(lv_length) in character mode.
-    if lv_package is initial or strlen( lv_package ) > lv_length.
+  METHOD read_package.
+    DATA(lv_package) = mo_server->request->get_form_field( 'id' ).
+    DATA lv_package_id TYPE uj_package_id.
+    DESCRIBE FIELD lv_package_id LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_package IS INITIAL OR strlen( lv_package ) > lv_length.
       respond_error( iv_code = 400 iv_reason = 'Bad Request'
                      iv_message = 'A valid package id is required' ).
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     rv_package = lv_package.
-  endmethod.
+  ENDMETHOD.
 
-  method require_method.
-    if mo_server->request->get_method( ) = iv_method.
+  METHOD require_method.
+    IF mo_server->request->get_method( ) = iv_method.
       rv_allowed = abap_true.
-      return.
-    endif.
+      RETURN.
+    ENDIF.
     respond_error( iv_code = 405 iv_reason = 'Method Not Allowed'
                    iv_message = |Only { iv_method } is supported| iv_allow = iv_method ).
-  endmethod.
+  ENDMETHOD.
 
-  method respond.
-    if iv_allow is not initial.
+  METHOD respond.
+    IF iv_allow IS NOT INITIAL.
       mo_server->response->set_header_field( name = 'Allow' value = iv_allow ).
-    endif.
+    ENDIF.
     mo_server->response->set_status( code = iv_code reason = iv_reason ).
     mo_server->response->set_cdata( iv_json ).
-  endmethod.
+  ENDMETHOD.
 
-  method respond_error.
+  METHOD respond_error.
     respond( iv_code = iv_code iv_reason = iv_reason iv_allow = iv_allow
              iv_json = `{"error":{"message":` && quote( iv_message ) && `}}` ).
-  endmethod.
+  ENDMETHOD.
 
-  method quote.
-    data(lv_value) = |{ iv_value }|.
+  METHOD quote.
+    DATA(lv_value) = |{ iv_value }|.
     rv_json = `"` && escape( val = lv_value format = cl_abap_format=>e_json_string ) && `"`.
-  endmethod.
-endclass.
-
+  ENDMETHOD.
+ENDCLASS.
