@@ -54,6 +54,20 @@ class zcl_bpc_io_service definition public final create public.
              message type string,
            end of ty_package_import,
            ty_package_imports type standard table of ty_package_import with default key.
+    types: begin of ty_dm_file,
+             name type uj_docname,
+             content type xstring,
+             workbook type xstring,
+           end of ty_dm_file,
+           ty_dm_files type standard table of ty_dm_file with default key.
+    types: begin of ty_dm_import,
+             name type uj_docname,
+             content type xstring,
+             workbook type xstring,
+             action type string,
+             message type string,
+           end of ty_dm_import,
+           ty_dm_imports type standard table of ty_dm_import with default key.
     type-pools uje0 .
     " Import results. WRITTEN and REPLACED scripts were stored in SAP,
     " SKIPPED ones already existed and FAILED ones were refused by BPC.
@@ -106,6 +120,40 @@ class zcl_bpc_io_service definition public final create public.
                 iv_replace type abap_bool default abap_false
       returning value(rt_results) type ty_package_imports
       raising cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
+    "! Lists the Data Manager transformation files (.TDM) of a model.
+    methods get_transformations
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+      returning value(rt_files) type ty_dm_files
+      raising cx_uj_static_check.
+    methods get_transformation
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_name type uj_docname
+      returning value(rs_file) type ty_dm_file
+      raising cx_uj_static_check.
+    "! Writes Data Manager transformation files (.TDM and their .xls workbook).
+    methods import_transformations
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                it_files type ty_dm_imports
+                iv_replace type abap_bool default abap_false
+      returning value(rt_results) type ty_dm_imports
+      raising cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
+    "! Lists the Data Manager conversion files (.CDM) of a model.
+    methods get_conversions
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+      returning value(rt_files) type ty_dm_files
+      raising cx_uj_static_check.
+    methods get_conversion
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_name type uj_docname
+      returning value(rs_file) type ty_dm_file
+      raising cx_uj_static_check.
+    "! Writes Data Manager conversion files (.CDM and their .xls workbook).
+    methods import_conversions
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                it_files type ty_dm_imports
+                iv_replace type abap_bool default abap_false
+      returning value(rt_results) type ty_dm_imports
+      raising cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
 
   private section.
     "! Logic Script documents live in the model's admin folder.
@@ -114,6 +162,40 @@ class zcl_bpc_io_service definition public final create public.
     constants c_docname_length type i value 255.
     "! Only bare uppercase .LGF names can become document names.
     constants c_script_pattern type string value '^[A-Z0-9_][A-Z0-9_.-]*\.LGF$' ##NO_TEXT.
+    "! Data Manager transformation and conversion files live under the
+    "! model's Data Manager folder.
+    constants c_dm_folder type string value 'DATAMANAGER' ##NO_TEXT.
+    constants c_transformation_folder type string value 'TRANSFORMATIONFILES' ##NO_TEXT.
+    constants c_conversion_folder type string value 'CONVERSIONFILES' ##NO_TEXT.
+    constants c_transformation_ext type string value '.TDM' ##NO_TEXT.
+    constants c_conversion_ext type string value '.CDM' ##NO_TEXT.
+    "! Directory holding one Data Manager file category of a model.
+    methods get_dm_directory
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_folder type string
+      returning value(rv_directory) type string.
+    "! Shared list / read / write helpers for transformation and conversion files.
+    methods list_dm_files
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_folder type string iv_ext type string
+      returning value(rt_files) type ty_dm_files
+      raising cx_uj_static_check.
+    methods get_dm_file
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_folder type string iv_ext type string iv_name type uj_docname
+      returning value(rs_file) type ty_dm_file
+      raising cx_uj_static_check.
+    methods import_dm_files
+      importing iv_environment type uj_appset_id iv_model type uj_appl_id
+                iv_folder type string iv_ext type string
+                it_files type ty_dm_imports
+                iv_replace type abap_bool default abap_false
+      returning value(rt_results) type ty_dm_imports
+      raising cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
+    "! Paired workbook name for a .TDM/.CDM definition file.
+    methods dm_workbook_name
+      importing iv_name type uj_docname iv_ext type string
+      returning value(rv_workbook) type uj_docname.
     "! Directory holding the Logic Scripts of a model.
     methods get_directory
       importing iv_environment type uj_appset_id iv_model type uj_appl_id
@@ -400,6 +482,189 @@ class zcl_bpc_io_service implementation.
                                  then c_action-replaced else c_action-written ).
       append ls_result to rt_results.
       append value #( group = lv_group id = lv_name ) to lt_written.
+      lv_written = lv_written + 1.
+    endloop.
+    if lv_written > 0.
+      commit work and wait.
+    endif.
+  endmethod.
+
+  method get_transformations.
+    rt_files = list_dm_files( iv_environment = iv_environment iv_model = iv_model
+                              iv_folder = c_transformation_folder iv_ext = c_transformation_ext ).
+  endmethod.
+
+  method get_transformation.
+    rs_file = get_dm_file( iv_environment = iv_environment iv_model = iv_model
+                           iv_folder = c_transformation_folder iv_ext = c_transformation_ext
+                           iv_name = iv_name ).
+  endmethod.
+
+  method import_transformations.
+    rt_results = import_dm_files( iv_environment = iv_environment iv_model = iv_model
+                                  iv_folder = c_transformation_folder iv_ext = c_transformation_ext
+                                  it_files = it_files iv_replace = iv_replace ).
+  endmethod.
+
+  method get_conversions.
+    rt_files = list_dm_files( iv_environment = iv_environment iv_model = iv_model
+                              iv_folder = c_conversion_folder iv_ext = c_conversion_ext ).
+  endmethod.
+
+  method get_conversion.
+    rs_file = get_dm_file( iv_environment = iv_environment iv_model = iv_model
+                           iv_folder = c_conversion_folder iv_ext = c_conversion_ext
+                           iv_name = iv_name ).
+  endmethod.
+
+  method import_conversions.
+    rt_results = import_dm_files( iv_environment = iv_environment iv_model = iv_model
+                                  iv_folder = c_conversion_folder iv_ext = c_conversion_ext
+                                  it_files = it_files iv_replace = iv_replace ).
+  endmethod.
+
+  method get_dm_directory.
+    rv_directory = |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ iv_model }\\{ c_dm_folder }\\{ iv_folder }\\|.
+  endmethod.
+
+  method dm_workbook_name.
+    data(lv_base) = substring( val = iv_name len = strlen( iv_name ) - strlen( iv_ext ) ).
+    rv_workbook = |{ lv_base }.xls|.
+  endmethod.
+
+  method list_dm_files.
+    data(lt_models) = get_models( iv_environment ).
+    read table lt_models transporting no fields with key id = iv_model.
+    if sy-subrc <> 0.
+      raise exception type cx_uj_no_auth.
+    endif.
+    data(ls_user) = value uj0_s_user( user_id = sy-uname langu = sy-langu ).
+    data(lo_files) = cl_ujf_file_service_mgr=>factory(
+      i_appset = iv_environment is_user = ls_user ).
+    data(lv_directory) = get_dm_directory( iv_environment = iv_environment
+                                           iv_model = iv_model iv_folder = iv_folder ).
+    data(lv_doctype) = substring( val = iv_ext off = 1 ).
+    lo_files->list_directory(
+      exporting i_dirname = lv_directory i_doctype = lv_doctype
+                i_sort = abap_true i_include_subfldrs = abap_false
+      importing et_document_list = data(lt_documents) ).
+    loop at lt_documents into data(ls_document).
+      data lt_parts type string_table.
+      split ls_document-docname at '\' into table lt_parts.
+      read table lt_parts into data(lv_name) index lines( lt_parts ).
+      if sy-subrc = 0 and to_upper( lv_name ) cp |*{ iv_ext }|.
+        append value #( name = lv_name ) to rt_files.
+      endif.
+    endloop.
+    sort rt_files by name.
+    delete adjacent duplicates from rt_files comparing name.
+  endmethod.
+
+  method get_dm_file.
+    data(lt_files) = list_dm_files( iv_environment = iv_environment iv_model = iv_model
+                                    iv_folder = iv_folder iv_ext = iv_ext ).
+    read table lt_files into data(ls_list) with key name = iv_name.
+    if sy-subrc <> 0.
+      return.
+    endif.
+    data(ls_user) = value uj0_s_user( user_id = sy-uname langu = sy-langu ).
+    data(lo_files) = cl_ujf_file_service_mgr=>factory(
+      i_appset = iv_environment is_user = ls_user ).
+    data(lv_directory) = get_dm_directory( iv_environment = iv_environment
+                                           iv_model = iv_model iv_folder = iv_folder ).
+    lo_files->get_document(
+      exporting i_docname = |{ lv_directory }{ iv_name }| i_retzip = abap_false
+      importing e_document_content = rs_file-content ).
+    rs_file-name = iv_name.
+* Read the paired workbook when present; its absence is not an error.
+    data(lv_base) = substring( val = iv_name len = strlen( iv_name ) - strlen( iv_ext ) ).
+    data(lv_workbook) = |{ lv_base }.xls|.
+    data(lv_workbook_uc) = |{ lv_base }.XLS|.
+    try.
+        lo_files->get_document(
+          exporting i_docname = |{ lv_directory }{ lv_workbook }| i_retzip = abap_false
+          importing e_document_content = rs_file-workbook ).
+      catch cx_ujf_file_service_error.
+        clear rs_file-workbook.
+        try.
+            lo_files->get_document(
+              exporting i_docname = |{ lv_directory }{ lv_workbook_uc }| i_retzip = abap_false
+              importing e_document_content = rs_file-workbook ).
+          catch cx_ujf_file_service_error.
+            clear rs_file-workbook.
+        endtry.
+    endtry.
+  endmethod.
+
+  method import_dm_files.
+    data(lt_existing) = list_dm_files( iv_environment = iv_environment iv_model = iv_model
+                                       iv_folder = iv_folder iv_ext = iv_ext ).
+    data(ls_user) = value uj0_s_user( user_id = sy-uname langu = sy-langu ).
+    data(lo_files) = cl_ujf_file_service_mgr=>factory(
+      i_appset = iv_environment is_user = ls_user ).
+    data(lv_directory) = get_dm_directory( iv_environment = iv_environment
+                                           iv_model = iv_model iv_folder = iv_folder ).
+    data: ls_result type ty_dm_import,
+          lt_written type ty_dm_files,
+          lv_name type string,
+          lv_docname type uj_docname,
+          lv_path type string,
+          lv_exists type abap_bool,
+          lv_written type i.
+    loop at it_files into data(ls_file).
+      clear ls_result.
+      lv_name = condense( ls_file-name ).
+      ls_result-name = lv_name.
+      if lv_name is initial.
+        raise exception type cx_uj_input_error
+          exporting object = 'Data Manager File' key = lv_name.
+      endif.
+      if lv_name ca '/' or lv_name ca '\'
+         or not ( to_upper( lv_name ) cp |*{ iv_ext }| ).
+        raise exception type cx_uj_input_error
+          exporting object = 'Data Manager File' key = lv_name.
+      endif.
+      read table lt_written transporting no fields with key name = lv_name.
+      if sy-subrc = 0.
+        ls_result-action = c_action-skipped.
+        ls_result-message = 'The file is contained twice in the import'.
+        append ls_result to rt_results.
+        continue.
+      endif.
+      read table lt_existing transporting no fields with key name = lv_name.
+      lv_exists = boolc( sy-subrc = 0 ).
+      if lv_exists = abap_true and iv_replace = abap_false.
+        ls_result-action = c_action-skipped.
+        ls_result-message = 'The file already exists in this model'.
+        append ls_result to rt_results.
+        continue.
+      endif.
+      lv_path = |{ lv_directory }{ lv_name }|.
+      if strlen( lv_path ) > c_docname_length.
+        raise exception type cx_uj_input_error
+          exporting object = 'Data Manager File Path' key = lv_name.
+      endif.
+      lv_docname = lv_path.
+      try.
+          lo_files->put_document(
+            i_docname = lv_docname i_doc_content = ls_file-content
+            i_compression = abap_false i_splice_zip = abap_false ).
+          if ls_file-workbook is not initial.
+            data(lv_workbook) = |{ lv_directory }{ dm_workbook_name( iv_name = lv_name iv_ext = iv_ext ) }|.
+            lo_files->put_document(
+              i_docname = lv_workbook i_doc_content = ls_file-workbook
+              i_compression = abap_false i_splice_zip = abap_false ).
+          endif.
+        catch cx_ujf_file_service_error into data(lx_file).
+          ls_result-action = c_action-failed.
+          ls_result-message = lx_file->get_text( ).
+          append ls_result to rt_results.
+          continue.
+      endtry.
+      ls_result-action = cond #( when lv_exists = abap_true
+                                 then c_action-replaced else c_action-written ).
+      append ls_result to rt_results.
+      append value #( name = lv_name ) to lt_written.
       lv_written = lv_written + 1.
     endloop.
     if lv_written > 0.

@@ -15,6 +15,12 @@ class zcl_bpc_io_http definition public final create public.
         package         type string value '/package',
         import          type string value '/import',
         packages_import type string value '/packages/import',
+        transformations  type string value '/transformations',
+        transformation   type string value '/transformation',
+        transforms_import type string value '/transformations/import',
+        conversions      type string value '/conversions',
+        conversion       type string value '/conversion',
+        convers_import   type string value '/conversions/import',
       end of c_resource.
     constants:
       begin of c_method,
@@ -29,6 +35,10 @@ class zcl_bpc_io_http definition public final create public.
     constants c_max_packages type i value 1000 ##NO_TEXT.
     "! and this much decoded package script content (5 MB).
     constants c_max_package_content type i value 5242880 ##NO_TEXT.
+    "! One transformation/conversion import accepts at most this many files
+    constants c_max_dm_files type i value 1000 ##NO_TEXT.
+    "! and this much decoded definition + workbook content (20 MB).
+    constants c_max_dm_content type i value 20971520 ##NO_TEXT.
 
     "! Sends 405 unless the request uses the expected method.
     methods require_method
@@ -46,6 +56,8 @@ class zcl_bpc_io_http definition public final create public.
       returning value(rv_group) type uj_pack_grp_id.
     methods read_package
       returning value(rv_package) type uj_package_id.
+    methods read_dm_name
+      returning value(rv_name) type uj_docname.
     methods handle_environments
       importing io_service type ref to zcl_bpc_io_service
       raising cx_uj_static_check.
@@ -71,6 +83,29 @@ class zcl_bpc_io_http definition public final create public.
     "! Reads the uploaded Logic Scripts and writes them into the given model.
     methods handle_import
       importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_transformations
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_transformation
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_import_transformations
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_conversions
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_conversion
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    methods handle_import_conversions
+      importing io_service type ref to zcl_bpc_io_service
+      raising cx_uj_static_check.
+    "! Shared writer for transformation and conversion file imports.
+    methods handle_import_dm
+      importing io_service type ref to zcl_bpc_io_service
+                iv_ext type string
       raising cx_uj_static_check.
     methods respond
       importing iv_code type i iv_reason type string iv_json type string
@@ -128,6 +163,30 @@ class zcl_bpc_io_http implementation.
             if require_method( c_method-post ).
               handle_import( lo_service ).
             endif.
+          when c_resource-transformations.
+            if require_method( c_method-get ).
+              handle_transformations( lo_service ).
+            endif.
+          when c_resource-transformation.
+            if require_method( c_method-get ).
+              handle_transformation( lo_service ).
+            endif.
+          when c_resource-transforms_import.
+            if require_method( c_method-post ).
+              handle_import_transformations( lo_service ).
+            endif.
+          when c_resource-conversions.
+            if require_method( c_method-get ).
+              handle_conversions( lo_service ).
+            endif.
+          when c_resource-conversion.
+            if require_method( c_method-get ).
+              handle_conversion( lo_service ).
+            endif.
+          when c_resource-convers_import.
+            if require_method( c_method-post ).
+              handle_import_conversions( lo_service ).
+            endif.
           when others.
             respond_error( iv_code = 404 iv_reason = 'Not Found'
                            iv_message = 'Unknown resource' ).
@@ -145,6 +204,10 @@ class zcl_bpc_io_http implementation.
                                then 'Cannot write BPC Logic Scripts'
                                when lv_path = c_resource-packages_import
                                then 'Cannot write BPC Data Manager Packages'
+                               when lv_path = c_resource-transforms_import
+                               then 'Cannot write BPC transformation files'
+                               when lv_path = c_resource-convers_import
+                               then 'Cannot write BPC conversion files'
                                else 'Cannot load BPC metadata' ) ).
     endtry.
   endmethod.
@@ -444,6 +507,225 @@ class zcl_bpc_io_http implementation.
       iv_code = 200 iv_reason = 'OK'
       iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
         `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
+  endmethod.
+
+  method handle_transformations.
+    data(lv_environment_id) = read_environment( ).
+    if lv_environment_id is initial.
+      return.
+    endif.
+    data(lv_model_id) = read_model( ).
+    if lv_model_id is initial.
+      return.
+    endif.
+    data(lt_files) = io_service->get_transformations(
+      iv_environment = lv_environment_id iv_model = lv_model_id ).
+    data lv_json type string.
+    data lv_separator type string.
+    lv_json = `{"transformations":[`.
+    loop at lt_files into data(ls_file).
+      lv_json = lv_json && lv_separator && `{"name":` && quote( ls_file-name ) && `}`.
+      lv_separator = ','.
+    endloop.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
+  endmethod.
+
+  method handle_transformation.
+    data(lv_environment_id) = read_environment( ).
+    if lv_environment_id is initial.
+      return.
+    endif.
+    data(lv_model_id) = read_model( ).
+    if lv_model_id is initial.
+      return.
+    endif.
+    data(lv_name) = read_dm_name( ).
+    if lv_name is initial.
+      return.
+    endif.
+    data(ls_file) = io_service->get_transformation(
+      iv_environment = lv_environment_id iv_model = lv_model_id iv_name = lv_name ).
+    if ls_file-name is initial.
+      respond_error( iv_code = 404 iv_reason = 'Not Found'
+                     iv_message = 'Transformation file not found' ).
+      return.
+    endif.
+    respond(
+      iv_code = 200 iv_reason = 'OK'
+      iv_json = `{"name":` && quote( ls_file-name ) &&
+        `,"content":"` && cl_http_utility=>encode_x_base64( ls_file-content ) &&
+        `","byteLength":` && |{ xstrlen( ls_file-content ) }| &&
+        `,"workbook":"` && cl_http_utility=>encode_x_base64( ls_file-workbook ) &&
+        `","workbookByteLength":` && |{ xstrlen( ls_file-workbook ) }| && `}` ).
+  endmethod.
+
+  method handle_conversions.
+    data(lv_environment_id) = read_environment( ).
+    if lv_environment_id is initial.
+      return.
+    endif.
+    data(lv_model_id) = read_model( ).
+    if lv_model_id is initial.
+      return.
+    endif.
+    data(lt_files) = io_service->get_conversions(
+      iv_environment = lv_environment_id iv_model = lv_model_id ).
+    data lv_json type string.
+    data lv_separator type string.
+    lv_json = `{"conversions":[`.
+    loop at lt_files into data(ls_file).
+      lv_json = lv_json && lv_separator && `{"name":` && quote( ls_file-name ) && `}`.
+      lv_separator = ','.
+    endloop.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
+  endmethod.
+
+  method handle_conversion.
+    data(lv_environment_id) = read_environment( ).
+    if lv_environment_id is initial.
+      return.
+    endif.
+    data(lv_model_id) = read_model( ).
+    if lv_model_id is initial.
+      return.
+    endif.
+    data(lv_name) = read_dm_name( ).
+    if lv_name is initial.
+      return.
+    endif.
+    data(ls_file) = io_service->get_conversion(
+      iv_environment = lv_environment_id iv_model = lv_model_id iv_name = lv_name ).
+    if ls_file-name is initial.
+      respond_error( iv_code = 404 iv_reason = 'Not Found'
+                     iv_message = 'Conversion file not found' ).
+      return.
+    endif.
+    respond(
+      iv_code = 200 iv_reason = 'OK'
+      iv_json = `{"name":` && quote( ls_file-name ) &&
+        `,"content":"` && cl_http_utility=>encode_x_base64( ls_file-content ) &&
+        `","byteLength":` && |{ xstrlen( ls_file-content ) }| &&
+        `,"workbook":"` && cl_http_utility=>encode_x_base64( ls_file-workbook ) &&
+        `","workbookByteLength":` && |{ xstrlen( ls_file-workbook ) }| && `}` ).
+  endmethod.
+
+  method handle_import_transformations.
+    handle_import_dm( io_service = io_service iv_ext = '.TDM' ).
+  endmethod.
+
+  method handle_import_conversions.
+    handle_import_dm( io_service = io_service iv_ext = '.CDM' ).
+  endmethod.
+
+  method handle_import_dm.
+    data(lv_environment_id) = read_environment( ).
+    if lv_environment_id is initial.
+      return.
+    endif.
+    data(lv_model_id) = read_model( ).
+    if lv_model_id is initial.
+      return.
+    endif.
+    data(lv_count) = mo_server->request->get_form_field( 'count' ).
+    if lv_count is initial or strlen( lv_count ) > 4 or not lv_count co '0123456789'.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid number of files is required' ).
+      return.
+    endif.
+    data lv_number type i.
+    lv_number = lv_count.
+    if lv_number > c_max_dm_files.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = |At most { c_max_dm_files } files can be imported at once| ).
+      return.
+    endif.
+    data: ls_file type zcl_bpc_io_service=>ty_dm_import,
+          lt_files type zcl_bpc_io_service=>ty_dm_imports,
+          lv_index type i,
+          lv_name type string,
+          lv_base64 type string,
+          lv_workbook64 type string,
+          lv_total type i.
+    do lv_number times.
+      lv_index = sy-index.
+      lv_name = mo_server->request->get_form_field( |name{ lv_index }| ).
+      lv_base64 = mo_server->request->get_form_field( |content{ lv_index }| ).
+      lv_workbook64 = mo_server->request->get_form_field( |workbook{ lv_index }| ).
+      if lv_name is initial.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'A valid file name is required' ).
+        return.
+      endif.
+      clear ls_file.
+      ls_file-name = lv_name.
+      try.
+          ls_file-content = cl_http_utility=>decode_x_base64( lv_base64 ).
+        catch cx_root.
+          respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                         iv_message = |Invalid Base64 content for { lv_name }| ).
+          return.
+      endtry.
+      if lv_workbook64 is not initial.
+        try.
+            ls_file-workbook = cl_http_utility=>decode_x_base64( lv_workbook64 ).
+          catch cx_root.
+            respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                           iv_message = |Invalid Base64 workbook for { lv_name }| ).
+            return.
+        endtry.
+      endif.
+      lv_total = lv_total + xstrlen( ls_file-content ) + xstrlen( ls_file-workbook ).
+      if lv_total > c_max_dm_content.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'The import exceeds 20 MB of file content' ).
+        return.
+      endif.
+      append ls_file to lt_files.
+    enddo.
+    data(lv_replace) = mo_server->request->get_form_field( 'replace' ).
+    data lt_results type zcl_bpc_io_service=>ty_dm_imports.
+    if iv_ext = '.TDM'.
+      lt_results = io_service->import_transformations(
+        iv_environment = lv_environment_id iv_model = lv_model_id
+        it_files = lt_files iv_replace = boolc( lv_replace is not initial ) ).
+    else.
+      lt_results = io_service->import_conversions(
+        iv_environment = lv_environment_id iv_model = lv_model_id
+        it_files = lt_files iv_replace = boolc( lv_replace is not initial ) ).
+    endif.
+    data lv_json type string.
+    data lv_separator type string.
+    data: lv_changed type i, lv_skipped type i, lv_failed type i.
+    loop at lt_results into data(ls_result).
+      lv_json = lv_json && lv_separator && `{"name":` && quote( ls_result-name ) &&
+        `,"action":` && quote( ls_result-action ) &&
+        `,"message":` && quote( ls_result-message ) && `}`.
+      lv_separator = ','.
+      case ls_result-action.
+        when zcl_bpc_io_service=>c_action-written or zcl_bpc_io_service=>c_action-replaced.
+          lv_changed = lv_changed + 1.
+        when zcl_bpc_io_service=>c_action-failed.
+          lv_failed = lv_failed + 1.
+        when others.
+          lv_skipped = lv_skipped + 1.
+      endcase.
+    endloop.
+    respond(
+      iv_code = 200 iv_reason = 'OK'
+      iv_json = `{"results":[` && lv_json && `],"changed":` && |{ lv_changed }| &&
+        `,"skipped":` && |{ lv_skipped }| && `,"failed":` && |{ lv_failed }| && `}` ).
+  endmethod.
+
+  method read_dm_name.
+    data(lv_name) = mo_server->request->get_form_field( 'name' ).
+    data lv_dm_name type uj_docname.
+    describe field lv_dm_name length data(lv_length) in character mode.
+    if lv_name is initial or strlen( lv_name ) > lv_length.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid file name is required' ).
+      return.
+    endif.
+    rv_name = lv_name.
   endmethod.
 
   method read_environment.
