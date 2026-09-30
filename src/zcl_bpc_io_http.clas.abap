@@ -24,6 +24,9 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
         workbooks        TYPE string VALUE '/workbooks',
         workbook         TYPE string VALUE '/workbook',
         workbooks_import TYPE string VALUE '/workbooks/import',
+        dimensions       TYPE string VALUE '/dimensions',
+        members          TYPE string VALUE '/members',
+        data_export      TYPE string VALUE '/data/export',
       END OF c_resource.
     CONSTANTS:
       BEGIN OF c_method,
@@ -46,6 +49,8 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_max_workbooks TYPE i VALUE 500 ##NO_TEXT.
     "! and this much decoded workbook content (50 MB); .xlsm reports are large.
     CONSTANTS c_max_workbook_content TYPE i VALUE 52428800 ##NO_TEXT.
+    "! One data export accepts at most this many filter members in total.
+    CONSTANTS c_max_filter_members TYPE i VALUE 100000 ##NO_TEXT.
 
     "! Sends 405 unless the request uses the expected method.
     METHODS require_method
@@ -123,6 +128,18 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     METHODS handle_import_workbooks
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
+    METHODS handle_dimensions
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_members
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    METHODS handle_export_data
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    "! Reads and validates the dimension id form field.
+    METHODS read_dimension
+      RETURNING VALUE(rv_dimension) TYPE uj_dim_name.
     "! Reads and validates the workbook library token ('REPORT' / 'SCHEDULE').
     METHODS read_folder
       RETURNING VALUE(rv_folder) TYPE string.
@@ -218,6 +235,18 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
             IF require_method( c_method-post ).
               handle_import_workbooks( lo_service ).
             ENDIF.
+          WHEN c_resource-dimensions.
+            IF require_method( c_method-get ).
+              handle_dimensions( lo_service ).
+            ENDIF.
+          WHEN c_resource-members.
+            IF require_method( c_method-get ).
+              handle_members( lo_service ).
+            ENDIF.
+          WHEN c_resource-data_export.
+            IF require_method( c_method-post ).
+              handle_export_data( lo_service ).
+            ENDIF.
           WHEN OTHERS.
             respond_error( iv_code = 404 iv_reason = 'Not Found'
                            iv_message = 'Unknown resource' ).
@@ -241,6 +270,8 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
                                THEN 'Cannot write BPC conversion files'
                                WHEN lv_path = c_resource-workbooks_import
                                THEN 'Cannot write BPC workbooks'
+                               WHEN lv_path = c_resource-data_export
+                               THEN 'Cannot read BPC data'
                                ELSE 'Cannot load BPC metadata' ) ).
     ENDTRY.
   ENDMETHOD.
@@ -1007,4 +1038,127 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
     DATA(lv_value) = |{ iv_value }|.
     rv_json = `"` && escape( val = lv_value format = cl_abap_format=>e_json_string ) && `"`.
   ENDMETHOD.
+  METHOD handle_dimensions.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_dimensions) = io_service->get_dimensions(
+      iv_environment = lv_environment_id iv_model = lv_model_id ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    lv_json = `{"dimensions":[`.
+    LOOP AT lt_dimensions INTO DATA(ls_dimension).
+      lv_json = lv_json && lv_separator && `{"id":` && quote( ls_dimension-id ) &&
+        `,"description":` && quote( ls_dimension-description ) &&
+        `,"type":` && quote( ls_dimension-dim_type ) && `}`.
+      lv_separator = ','.
+    ENDLOOP.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
+  ENDMETHOD.
+
+  METHOD handle_members.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_dimension_id) = read_dimension( ).
+    IF lv_dimension_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lt_members) = io_service->get_dimension_members(
+      iv_environment = lv_environment_id iv_model = lv_model_id
+      iv_dimension = lv_dimension_id ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    lv_json = `{"members":[`.
+    LOOP AT lt_members INTO DATA(ls_member).
+      DATA lv_props TYPE string.
+      DATA lv_psep TYPE string.
+      CLEAR lv_props.
+      CLEAR lv_psep.
+      LOOP AT ls_member-properties INTO DATA(ls_prop).
+        lv_props = lv_props && lv_psep && quote( ls_prop-id ) && `:` && quote( ls_prop-value ).
+        lv_psep = ','.
+      ENDLOOP.
+      lv_json = lv_json && lv_separator && `{"id":` && quote( ls_member-id ) &&
+        `,"description":` && quote( ls_member-description ) &&
+        `,"properties":{` && lv_props && `}}`.
+      lv_separator = ','.
+    ENDLOOP.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
+  ENDMETHOD.
+
+  METHOD handle_export_data.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'filterCount' ).
+    IF lv_count IS NOT INITIAL AND ( strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789' ).
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid filter count is required' ).
+      RETURN.
+    ENDIF.
+    DATA lv_number TYPE i.
+    lv_number = lv_count.
+    DATA lt_filters TYPE zcl_bpc_io_service=>ty_filters.
+    DATA lv_total_members TYPE i.
+    DATA lv_index TYPE i.
+    DO lv_number TIMES.
+      lv_index = sy-index.
+      DATA(lv_dim) = to_upper( mo_server->request->get_form_field( |filterDimension{ lv_index }| ) ).
+      DATA(lv_members) = mo_server->request->get_form_field( |filterMembers{ lv_index }| ).
+      IF lv_dim IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      DATA ls_filter TYPE zcl_bpc_io_service=>ty_filter.
+      CLEAR ls_filter.
+      ls_filter-dimension = lv_dim.
+      SPLIT lv_members AT ',' INTO TABLE DATA(lt_member_ids).
+      LOOP AT lt_member_ids INTO DATA(lv_member_id).
+        IF lv_member_id IS NOT INITIAL.
+          APPEND CONV uj_dim_member( to_upper( lv_member_id ) ) TO ls_filter-members.
+          lv_total_members = lv_total_members + 1.
+        ENDIF.
+      ENDLOOP.
+      IF lv_total_members > c_max_filter_members.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'The export selects too many filter members' ).
+        RETURN.
+      ENDIF.
+      IF ls_filter-members IS NOT INITIAL.
+        APPEND ls_filter TO lt_filters.
+      ENDIF.
+    ENDDO.
+    DATA(lv_csv) = io_service->export_data(
+      iv_environment = lv_environment_id iv_model = lv_model_id it_filters = lt_filters ).
+    respond( iv_code = 200 iv_reason = 'OK'
+             iv_json = `{"csv":` && quote( lv_csv ) && `}` ).
+  ENDMETHOD.
+
+  METHOD read_dimension.
+    DATA(lv_dimension) = to_upper( mo_server->request->get_form_field( 'dimension' ) ).
+    DATA lv_dimension_id TYPE uj_dim_name.
+    DESCRIBE FIELD lv_dimension_id LENGTH DATA(lv_length) IN CHARACTER MODE.
+    IF lv_dimension IS INITIAL OR strlen( lv_dimension ) > lv_length.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'A valid dimension is required' ).
+      RETURN.
+    ENDIF.
+    rv_dimension = lv_dimension.
+  ENDMETHOD.
+
 ENDCLASS.

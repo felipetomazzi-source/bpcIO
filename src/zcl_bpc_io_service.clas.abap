@@ -82,6 +82,28 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
              message TYPE string,
            END OF ty_workbook_import,
            ty_workbook_imports TYPE STANDARD TABLE OF ty_workbook_import WITH DEFAULT KEY.
+    TYPES: BEGIN OF ty_dimension,
+             id TYPE uj_dim_name,
+             description TYPE uj_desc,
+             dim_type TYPE uj_dim_type,
+           END OF ty_dimension,
+           ty_dimensions TYPE STANDARD TABLE OF ty_dimension WITH DEFAULT KEY.
+    TYPES: BEGIN OF ty_property,
+             id TYPE uj_attr_name,
+             value TYPE string,
+           END OF ty_property,
+           ty_properties TYPE STANDARD TABLE OF ty_property WITH DEFAULT KEY.
+    TYPES: BEGIN OF ty_member,
+             id TYPE uj_dim_member,
+             description TYPE uj_desc,
+             properties TYPE ty_properties,
+           END OF ty_member,
+           ty_members TYPE STANDARD TABLE OF ty_member WITH DEFAULT KEY.
+    TYPES: BEGIN OF ty_filter,
+             dimension TYPE uj_dim_name,
+             members TYPE STANDARD TABLE OF uj_dim_member WITH DEFAULT KEY,
+           END OF ty_filter,
+           ty_filters TYPE STANDARD TABLE OF ty_filter WITH DEFAULT KEY.
     TYPE-POOLS uje0 .
     " Import results. WRITTEN and REPLACED scripts were stored in SAP,
     " SKIPPED ones already existed and FAILED ones were refused by BPC.
@@ -190,7 +212,27 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
       RETURNING VALUE(rt_results) TYPE ty_workbook_imports
       RAISING cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
 
+    "! Lists the dimensions of a model (id, description, type).
+    METHODS get_dimensions
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+      RETURNING VALUE(rt_dimensions) TYPE ty_dimensions
+      RAISING cx_uj_static_check.
+    "! Lists the members of one dimension with their property values.
+    METHODS get_dimension_members
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                iv_dimension TYPE uj_dim_name
+      RETURNING VALUE(rt_members) TYPE ty_members
+      RAISING cx_uj_static_check.
+    "! Reads the fact data of a model for the given member filters and
+    "! returns it as CSV (one column per dimension plus SIGNEDDATA).
+    METHODS export_data
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                it_filters TYPE ty_filters
+      RETURNING VALUE(rv_csv) TYPE string
+      RAISING cx_uj_static_check.
+
   PRIVATE SECTION.
+    METHODS csv_field IMPORTING iv_value TYPE string RETURNING VALUE(rv_field) TYPE string.
     "! Logic Script documents live in the model's admin folder.
     CONSTANTS c_script_folder TYPE string VALUE 'ADMINAPP' ##NO_TEXT.
     "! Document names are CHAR255, so the full document path must fit the type.
@@ -945,6 +987,204 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     ENDLOOP.
     IF lv_written > 0.
       COMMIT WORK AND WAIT.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD get_dimensions.
+* Reject models outside the user's environment and set the BPC context.
+    DATA(lt_models) = get_models( iv_environment ).
+    READ TABLE lt_models TRANSPORTING NO FIELDS WITH KEY id = iv_model.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA(lo_manager) = cl_uja_bpc_admin_factory=>get_appset_manager(
+      i_appset_id = iv_environment if_disable_security = abap_false ).
+    lo_manager->get_applications(
+      EXPORTING if_summary = abap_false
+      IMPORTING et_applications = DATA(lt_applications) ).
+    READ TABLE lt_applications INTO DATA(ls_application)
+      WITH KEY application_id = iv_model.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    LOOP AT ls_application-dimensions INTO DATA(ls_dimension).
+      APPEND VALUE #( id = ls_dimension-dimension
+                      description = ls_dimension-description
+                      dim_type = ls_dimension-dim_type ) TO rt_dimensions.
+    ENDLOOP.
+    SORT rt_dimensions BY id.
+  ENDMETHOD.
+
+  METHOD get_dimension_members.
+* Validate the dimension belongs to the model, then read its members
+* together with all of their attribute (property) values.
+    DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
+    READ TABLE lt_dimensions TRANSPORTING NO FIELDS WITH KEY id = iv_dimension.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA lo_dim TYPE REF TO cl_uja_dim.
+    TRY.
+        CREATE OBJECT lo_dim
+          EXPORTING i_appset_id = iv_environment i_dimension = iv_dimension.
+      CATCH cx_uja_admin_error.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+    DATA lt_attr TYPE uja_t_attr.
+    TRY.
+        lo_dim->get_attr_list( IMPORTING et_attr_list = lt_attr ).
+      CATCH cx_root.
+        CLEAR lt_attr.
+    ENDTRY.
+    DATA lt_attr_name TYPE uja_t_attr_name.
+    LOOP AT lt_attr INTO DATA(ls_attr).
+      APPEND ls_attr-attribute TO lt_attr_name.
+    ENDLOOP.
+    DATA lr_data TYPE REF TO data.
+    TRY.
+        lo_dim->read_mbr_data(
+          EXPORTING it_attr_list = lt_attr_name if_inc_txt = abap_true
+          IMPORTING er_data = lr_data ).
+      CATCH cx_uja_admin_error.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+    FIELD-SYMBOLS <lt_data> TYPE STANDARD TABLE.
+    ASSIGN lr_data->* TO <lt_data>.
+    IF <lt_data> IS NOT ASSIGNED.
+      RETURN.
+    ENDIF.
+    FIELD-SYMBOLS <ls_row> TYPE any.
+    FIELD-SYMBOLS <lv_val> TYPE any.
+    LOOP AT <lt_data> ASSIGNING <ls_row>.
+      DATA ls_member TYPE ty_member.
+      CLEAR ls_member.
+      ASSIGN COMPONENT 'DIMENSION' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        ls_member-id = <lv_val>.
+      ENDIF.
+      ASSIGN COMPONENT 'DESCRIPTION' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        ls_member-description = <lv_val>.
+      ENDIF.
+      LOOP AT lt_attr_name INTO DATA(lv_attr_name).
+        ASSIGN COMPONENT lv_attr_name OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0 AND <lv_val> IS NOT INITIAL.
+          APPEND VALUE #( id = lv_attr_name value = |{ <lv_val> }| ) TO ls_member-properties.
+        ENDIF.
+      ENDLOOP.
+      IF ls_member-id IS NOT INITIAL.
+        APPEND ls_member TO rt_members.
+      ENDIF.
+    ENDLOOP.
+    SORT rt_members BY id.
+    DELETE ADJACENT DUPLICATES FROM rt_members COMPARING id.
+  ENDMETHOD.
+
+  METHOD export_data.
+* Read the model's dimensions to shape the query and the CSV columns,
+* build the member selections, run the flat RSDRI query and format CSV.
+    DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
+    IF lt_dimensions IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA lt_dim_name TYPE uja_t_dim_list.
+    LOOP AT lt_dimensions INTO DATA(ls_dim).
+      APPEND ls_dim-id TO lt_dim_name.
+    ENDLOOP.
+* Build a dynamic result table: one CHAR column per dimension (named after
+* the dimension) plus a SIGNEDDATA amount column, matching RSDRI output.
+    DATA lt_components TYPE cl_abap_structdescr=>component_table.
+    DATA(lo_member_type) = cl_abap_elemdescr=>get_c( 32 ).
+    LOOP AT lt_dimensions INTO ls_dim.
+      APPEND VALUE #( name = ls_dim-id type = lo_member_type ) TO lt_components.
+    ENDLOOP.
+    APPEND VALUE #( name = 'SIGNEDDATA'
+                    type = CAST cl_abap_datadescr(
+                             cl_abap_elemdescr=>describe_by_name( 'UJ_SDATA' ) ) ) TO lt_components.
+    DATA(lo_struct) = cl_abap_structdescr=>get( lt_components ).
+    DATA(lo_table) = cl_abap_tabledescr=>get( p_line_type = lo_struct ).
+    DATA lr_result TYPE REF TO data.
+    CREATE DATA lr_result TYPE HANDLE lo_table.
+    FIELD-SYMBOLS <lt_result> TYPE STANDARD TABLE.
+    ASSIGN lr_result->* TO <lt_result>.
+* Member filters -> UJ0_T_SEL selection (sign I, option EQ per member).
+    DATA lt_sel TYPE uj0_t_sel.
+    LOOP AT it_filters INTO DATA(ls_filter).
+      READ TABLE lt_dimensions TRANSPORTING NO FIELDS WITH KEY id = ls_filter-dimension.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      LOOP AT ls_filter-members INTO DATA(lv_member).
+        IF lv_member IS INITIAL.
+          CONTINUE.
+        ENDIF.
+        APPEND VALUE #( dimension = ls_filter-dimension
+                        sign = 'I' option = 'EQ' low = lv_member ) TO lt_sel.
+      ENDLOOP.
+    ENDLOOP.
+    DATA lo_query TYPE REF TO if_ujo_query.
+    TRY.
+        lo_query = cl_ujo_query_factory=>get_query_adapter(
+          i_appset_id = iv_environment i_appl_id = iv_model ).
+      CATCH cx_ujo_read.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+    DATA lt_message TYPE uj0_t_message.
+    DATA lf_eod TYPE rs_bool.
+    TRY.
+        lo_query->run_rsdri_query(
+          EXPORTING it_dim_name = lt_dim_name it_range = lt_sel
+                    if_check_security = abap_true
+          IMPORTING et_data = <lt_result> e_end_of_data = lf_eod
+                    et_message = lt_message ).
+      CATCH cx_ujo_read.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+* Header row: every dimension plus the signed data value.
+    DATA lv_header TYPE string.
+    LOOP AT lt_dimensions INTO ls_dim.
+      IF lv_header IS NOT INITIAL.
+        lv_header = lv_header && ','.
+      ENDIF.
+      lv_header = lv_header && csv_field( |{ ls_dim-id }| ).
+    ENDLOOP.
+    lv_header = lv_header && ',SIGNEDDATA'.
+    rv_csv = lv_header.
+    IF <lt_result> IS NOT ASSIGNED.
+      rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
+      RETURN.
+    ENDIF.
+    FIELD-SYMBOLS <ls_row> TYPE any.
+    FIELD-SYMBOLS <lv_val> TYPE any.
+    LOOP AT <lt_result> ASSIGNING <ls_row>.
+      DATA lv_line TYPE string.
+      CLEAR lv_line.
+      LOOP AT lt_dimensions INTO ls_dim.
+        IF lv_line IS NOT INITIAL.
+          lv_line = lv_line && ','.
+        ENDIF.
+        ASSIGN COMPONENT ls_dim-id OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0.
+          lv_line = lv_line && csv_field( |{ <lv_val> }| ).
+        ENDIF.
+      ENDLOOP.
+      ASSIGN COMPONENT 'SIGNEDDATA' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        lv_line = lv_line && ',' && condense( |{ <lv_val> }| ).
+      ELSE.
+        lv_line = lv_line && ','.
+      ENDIF.
+      rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf && lv_line.
+    ENDLOOP.
+    rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
+  ENDMETHOD.
+
+  METHOD csv_field.
+* Quote a CSV field when it contains a comma, quote or line break.
+    rv_field = iv_value.
+    IF rv_field CA ',"' OR rv_field CA cl_abap_char_utilities=>cr_lf.
+      REPLACE ALL OCCURRENCES OF '"' IN rv_field WITH '""'.
+      rv_field = |"{ rv_field }"|.
     ENDIF.
   ENDMETHOD.
 
