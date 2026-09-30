@@ -27,6 +27,7 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
         dimensions       TYPE string VALUE '/dimensions',
         members          TYPE string VALUE '/members',
         data_export      TYPE string VALUE '/data/export',
+        data_import      TYPE string VALUE '/data/import',
       END OF c_resource.
     CONSTANTS:
       BEGIN OF c_method,
@@ -51,6 +52,10 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_max_workbook_content TYPE i VALUE 52428800 ##NO_TEXT.
     "! One data export accepts at most this many filter members in total.
     CONSTANTS c_max_filter_members TYPE i VALUE 100000 ##NO_TEXT.
+    "! One data import request accepts at most this many CSV lines
+    CONSTANTS c_max_import_rows TYPE i VALUE 50000 ##NO_TEXT.
+    "! and this much CSV text (20 MB).
+    CONSTANTS c_max_import_csv TYPE i VALUE 20971520 ##NO_TEXT.
 
     "! Sends 405 unless the request uses the expected method.
     METHODS require_method
@@ -135,6 +140,10 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
     METHODS handle_export_data
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
+    "! Reads an uploaded CSV batch and writes its records into the model.
+    METHODS handle_import_data
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
     "! Reads and validates the dimension id form field.
@@ -247,6 +256,10 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
             IF require_method( c_method-post ).
               handle_export_data( lo_service ).
             ENDIF.
+          WHEN c_resource-data_import.
+            IF require_method( c_method-post ).
+              handle_import_data( lo_service ).
+            ENDIF.
           WHEN OTHERS.
             respond_error( iv_code = 404 iv_reason = 'Not Found'
                            iv_message = 'Unknown resource' ).
@@ -272,6 +285,8 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
                                THEN 'Cannot write BPC workbooks'
                                WHEN lv_path = c_resource-data_export
                                THEN 'Cannot read BPC data'
+                               WHEN lv_path = c_resource-data_import
+                               THEN 'Cannot write BPC data'
                                ELSE 'Cannot load BPC metadata' ) ).
     ENDTRY.
   ENDMETHOD.
@@ -1159,6 +1174,47 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
       RETURN.
     ENDIF.
     rv_dimension = lv_dimension.
+  ENDMETHOD.
+
+
+  METHOD handle_import_data.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_csv) = mo_server->request->get_form_field( 'csv' ).
+    IF lv_csv IS INITIAL.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'CSV data is required' ).
+      RETURN.
+    ENDIF.
+    IF strlen( lv_csv ) > c_max_import_csv.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = 'The import exceeds 20 MB of CSV per request' ).
+      RETURN.
+    ENDIF.
+    IF count( val = lv_csv sub = cl_abap_char_utilities=>newline ) > c_max_import_rows.
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                     iv_message = |At most { c_max_import_rows } lines can be imported per request| ).
+      RETURN.
+    ENDIF.
+    DATA(ls_result) = io_service->import_data(
+      iv_environment = lv_environment_id iv_model = lv_model_id iv_csv = lv_csv ).
+    DATA lv_messages TYPE string.
+    DATA lv_separator TYPE string.
+    LOOP AT ls_result-messages INTO DATA(lv_message).
+      lv_messages = lv_messages && lv_separator && quote( lv_message ).
+      lv_separator = ','.
+    ENDLOOP.
+    respond( iv_code = 200 iv_reason = 'OK'
+             iv_json = `{"submitted":` && |{ ls_result-submitted }| &&
+                       `,"success":` && |{ ls_result-success }| &&
+                       `,"failed":` && |{ ls_result-failed }| &&
+                       `,"messages":[` && lv_messages && `]}` ).
   ENDMETHOD.
 
 ENDCLASS.

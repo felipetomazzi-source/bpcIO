@@ -104,6 +104,12 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
              members TYPE STANDARD TABLE OF uj_dim_member WITH DEFAULT KEY,
            END OF ty_filter,
            ty_filters TYPE STANDARD TABLE OF ty_filter WITH DEFAULT KEY.
+    TYPES: BEGIN OF ty_data_import_result,
+             submitted TYPE i,
+             success TYPE i,
+             failed TYPE i,
+             messages TYPE string_table,
+           END OF ty_data_import_result.
     TYPE-POOLS uje0 .
     " Import results. WRITTEN and REPLACED scripts were stored in SAP,
     " SKIPPED ones already existed and FAILED ones were refused by BPC.
@@ -230,9 +236,21 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 it_filters TYPE ty_filters
       RETURNING VALUE(rv_csv) TYPE string
       RAISING cx_uj_static_check.
+    "! Writes CSV fact records (one column per dimension plus SIGNEDDATA, the
+    "! format export_data produces) into a model through the BPC write-back
+    "! API. Each value overwrites the stored value at its intersection.
+    METHODS import_data
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                iv_csv TYPE string
+      RETURNING VALUE(rs_result) TYPE ty_data_import_result
+      RAISING cx_uj_static_check.
 
   PRIVATE SECTION.
     METHODS csv_field IMPORTING iv_value TYPE string RETURNING VALUE(rv_field) TYPE string.
+    "! Splits one CSV line into its fields (double-quoted fields may hold commas).
+    METHODS parse_csv_line IMPORTING iv_line TYPE string RETURNING VALUE(rt_fields) TYPE string_table.
+    "! A data import reports at most this many distinct messages.
+    CONSTANTS c_max_import_messages TYPE i VALUE 100 ##NO_TEXT.
     "! Logic Script documents live in the model's admin folder.
     CONSTANTS c_script_folder TYPE string VALUE 'ADMINAPP' ##NO_TEXT.
     "! Document names are CHAR255, so the full document path must fit the type.
@@ -1213,6 +1231,240 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       REPLACE ALL OCCURRENCES OF '"' IN rv_field WITH '""'.
       rv_field = |"{ rv_field }"|.
     ENDIF.
+  ENDMETHOD.
+
+
+  METHOD import_data.
+* Read the model's dimensions (this also rejects models outside the user's
+* environment), parse the CSV into a write-back record table and post it
+* through the BPC write-back API, which checks work status, data access
+* and base members per record.
+    TYPES: BEGIN OF ty_col,
+             index TYPE i,
+             name TYPE string,
+           END OF ty_col.
+    DATA lt_cols TYPE STANDARD TABLE OF ty_col WITH DEFAULT KEY.
+    DATA ls_col TYPE ty_col.
+    DATA lt_header TYPE string_table.
+    DATA lt_fields TYPE string_table.
+    DATA lv_head TYPE string.
+    DATA lv_line TYPE string.
+    DATA lv_line_no TYPE i.
+    DATA lv_value TYPE string.
+    DATA lv_number TYPE string.
+    DATA lv_float TYPE f.
+    DATA lv_row_ok TYPE abap_bool.
+    DATA lv_header_read TYPE abap_bool.
+    DATA lv_header_error TYPE abap_bool.
+    DATA lv_parsed_fail TYPE i.
+    DATA lv_text TYPE string.
+    DATA lr_records TYPE REF TO data.
+    DATA lr_line TYPE REF TO data.
+    DATA lr_errors TYPE REF TO data.
+    DATA ls_status TYPE ujo_s_wb_status.
+    DATA lt_message TYPE uj0_t_message.
+    DATA ls_message TYPE uj0_s_message.
+    DATA lf_success TYPE uj_flg.
+    DATA lo_appl TYPE REF TO if_uja_application_manager.
+    DATA lo_wb TYPE REF TO if_ujo_write_back.
+    DATA lx_wb TYPE REF TO cx_ujo_write_back.
+    FIELD-SYMBOLS <lt_records> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <lt_errors> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_record> TYPE any.
+    FIELD-SYMBOLS <lv_target> TYPE any.
+
+    DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
+    IF lt_dimensions IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA(ls_user) = VALUE uj0_s_user( user_id = sy-uname langu = sy-langu ).
+    TRY.
+        cl_uj_context=>set_cur_context( i_appset_id = iv_environment is_user = ls_user
+                                        i_appl_id = iv_model ).
+        lo_appl = cl_uja_bpc_admin_factory=>get_application_manager(
+          i_appset_id = iv_environment i_application_id = iv_model ).
+* Business-name record table: one column per dimension plus SIGNEDDATA.
+        lo_appl->create_data_ref( EXPORTING i_data_type = 'T' if_tech_name = abap_false
+                                  IMPORTING er_data = lr_records ).
+      CATCH cx_root.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+* Writing data needs the same task as sending data from the EPM add-in.
+    cl_uj_context=>get_cur_context( )->check_task_access( i_task_name = uje0_cs_task_id-p0038 ).
+    ASSIGN lr_records->* TO <lt_records>.
+    IF <lt_records> IS NOT ASSIGNED.
+      RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDIF.
+    CREATE DATA lr_line LIKE LINE OF <lt_records>.
+    ASSIGN lr_line->* TO <ls_record>.
+
+    DATA(lv_cr) = substring( val = cl_abap_char_utilities=>cr_lf len = 1 ).
+    SPLIT iv_csv AT cl_abap_char_utilities=>newline INTO TABLE DATA(lt_lines).
+    LOOP AT lt_lines INTO lv_line.
+      lv_line_no = sy-tabix.
+      REPLACE ALL OCCURRENCES OF lv_cr IN lv_line WITH ``.
+      IF strlen( condense( lv_line ) ) = 0.
+        CONTINUE.
+      ENDIF.
+      IF lv_header_read = abap_false.
+* Header: every model dimension and SIGNEDDATA, in any order.
+        lv_header_read = abap_true.
+        lt_header = parse_csv_line( lv_line ).
+        LOOP AT lt_header INTO lv_head.
+          ls_col-index = sy-tabix.
+          ls_col-name = to_upper( condense( lv_head ) ).
+          APPEND ls_col TO lt_cols.
+        ENDLOOP.
+        LOOP AT lt_dimensions INTO DATA(ls_dim).
+          READ TABLE lt_cols TRANSPORTING NO FIELDS WITH KEY name = ls_dim-id.
+          IF sy-subrc <> 0.
+            APPEND |Missing column { ls_dim-id }| TO rs_result-messages.
+          ENDIF.
+        ENDLOOP.
+        READ TABLE lt_cols TRANSPORTING NO FIELDS WITH KEY name = 'SIGNEDDATA'.
+        IF sy-subrc <> 0.
+          APPEND `Missing column SIGNEDDATA` TO rs_result-messages.
+        ENDIF.
+        LOOP AT lt_cols INTO ls_col WHERE name <> 'SIGNEDDATA'.
+          READ TABLE lt_dimensions TRANSPORTING NO FIELDS WITH KEY id = ls_col-name.
+          IF sy-subrc <> 0.
+            APPEND |Unknown column { ls_col-name }| TO rs_result-messages.
+          ENDIF.
+        ENDLOOP.
+        lv_header_error = boolc( rs_result-messages IS NOT INITIAL ).
+        CONTINUE.
+      ENDIF.
+      rs_result-submitted = rs_result-submitted + 1.
+      IF lv_header_error = abap_true.
+        rs_result-failed = rs_result-failed + 1.
+        CONTINUE.
+      ENDIF.
+      lt_fields = parse_csv_line( lv_line ).
+      CLEAR <ls_record>.
+      lv_row_ok = abap_true.
+      LOOP AT lt_cols INTO ls_col.
+        CLEAR lv_value.
+        READ TABLE lt_fields INTO lv_value INDEX ls_col-index.
+        ASSIGN COMPONENT ls_col-name OF STRUCTURE <ls_record> TO <lv_target>.
+        IF sy-subrc <> 0.
+          lv_row_ok = abap_false.
+          EXIT.
+        ENDIF.
+        IF ls_col-name = 'SIGNEDDATA'.
+          lv_number = lv_value.
+          CONDENSE lv_number NO-GAPS.
+          TRY.
+              <lv_target> = lv_number.
+            CATCH cx_sy_conversion_error.
+* Scientific notation is accepted with the precision of a float.
+              TRY.
+                  lv_float = lv_number.
+                  <lv_target> = lv_float.
+                CATCH cx_sy_conversion_error.
+                  lv_row_ok = abap_false.
+              ENDTRY.
+          ENDTRY.
+        ELSE.
+          <lv_target> = condense( lv_value ).
+          IF <lv_target> IS INITIAL.
+            lv_row_ok = abap_false.
+          ENDIF.
+        ENDIF.
+      ENDLOOP.
+      IF lv_row_ok = abap_true.
+        APPEND <ls_record> TO <lt_records>.
+      ELSE.
+        rs_result-failed = rs_result-failed + 1.
+        IF lines( rs_result-messages ) < c_max_import_messages.
+          APPEND |Line { lv_line_no }: missing member or invalid SIGNEDDATA value| TO rs_result-messages.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+    IF <lt_records> IS INITIAL.
+      RETURN.
+    ENDIF.
+
+* Records carry the stored values (as exported via RSDRI), so INC/LEQ
+* accounts must not be sign-reversed; calc_delta (default) makes each value
+* overwrite the stored value at its intersection. No default logic runs.
+    DATA(ls_param) = cl_ujo_wb_factory=>default_wb_param( ).
+    ls_param-sign_trans = abap_false.
+    ls_param-default_logic = abap_false.
+    CREATE DATA lr_errors LIKE <lt_records>.
+    ASSIGN lr_errors->* TO <lt_errors>.
+    lv_parsed_fail = rs_result-failed.
+    TRY.
+        lo_wb = cl_ujo_wb_factory=>create_write_back( ).
+        lo_wb->write_back(
+          EXPORTING i_appset_id = iv_environment i_appl_id = iv_model
+                    is_wb_param = ls_param it_records = <lt_records>
+          IMPORTING es_wb_status = ls_status et_error_records = <lt_errors>
+                    et_message = lt_message ef_success = lf_success ).
+      CATCH cx_ujo_write_back INTO lx_wb.
+* The whole batch was refused (e.g. locked by work status).
+        ROLLBACK WORK.
+        rs_result-failed = lv_parsed_fail + lines( <lt_records> ).
+        APPEND lx_wb->get_text( ) TO rs_result-messages.
+        RETURN.
+    ENDTRY.
+    rs_result-failed = lv_parsed_fail + ls_status-nr_fail.
+    rs_result-success = nmax( val1 = 0 val2 = lines( <lt_records> ) - ls_status-nr_fail ).
+    LOOP AT lt_message INTO ls_message.
+      IF lines( rs_result-messages ) >= c_max_import_messages.
+        EXIT.
+      ENDIF.
+      lv_text = ls_message-message.
+      IF lv_text IS INITIAL AND ls_message-msgid IS NOT INITIAL.
+        MESSAGE ID ls_message-msgid TYPE 'I' NUMBER ls_message-msgno
+          WITH ls_message-msgv1 ls_message-msgv2 ls_message-msgv3 ls_message-msgv4
+          INTO lv_text.
+      ENDIF.
+      IF lv_text IS NOT INITIAL.
+        READ TABLE rs_result-messages TRANSPORTING NO FIELDS WITH KEY table_line = lv_text.
+        IF sy-subrc <> 0.
+          APPEND lv_text TO rs_result-messages.
+        ENDIF.
+      ENDIF.
+    ENDLOOP.
+    IF rs_result-success > 0.
+      COMMIT WORK AND WAIT.
+    ENDIF.
+  ENDMETHOD.
+
+  METHOD parse_csv_line.
+* Fields are separated by commas; a double-quoted field may contain commas,
+* and "" inside a quoted field stands for one quote.
+    DATA lv_field TYPE string.
+    DATA lv_char TYPE string.
+    DATA lv_quoted TYPE abap_bool.
+    DATA lv_pos TYPE i.
+    DATA lv_next TYPE i.
+    DATA(lv_len) = strlen( iv_line ).
+    WHILE lv_pos < lv_len.
+      lv_char = substring( val = iv_line off = lv_pos len = 1 ).
+      lv_next = lv_pos + 1.
+      IF lv_quoted = abap_true.
+        IF lv_char = '"'.
+          IF lv_next < lv_len AND substring( val = iv_line off = lv_next len = 1 ) = '"'.
+            lv_field = lv_field && '"'.
+            lv_next = lv_next + 1.
+          ELSE.
+            lv_quoted = abap_false.
+          ENDIF.
+        ELSE.
+          lv_field = lv_field && lv_char.
+        ENDIF.
+      ELSEIF lv_char = '"'.
+        lv_quoted = abap_true.
+      ELSEIF lv_char = ','.
+        APPEND lv_field TO rt_fields.
+        CLEAR lv_field.
+      ELSE.
+        lv_field = lv_field && lv_char.
+      ENDIF.
+      lv_pos = lv_next.
+    ENDWHILE.
+    APPEND lv_field TO rt_fields.
   ENDMETHOD.
 
 ENDCLASS.
