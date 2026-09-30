@@ -56,19 +56,19 @@ sap.ui.define([], function () {
     }                                                                                                                                                                                                                                                          
     return oDm;                                                                                                                                                                                                                                                
   }                                                                                                                                                                                                                                                            
-  function validateWorkbook(oWb) {
-    if (!oWb || typeof oWb.name !== "string" || oWb.name.length > 255 ||
-        !/^[A-Za-z0-9_][A-Za-z0-9_. -]*\.(xlsm|xlsx|xls)$/i.test(oWb.name) || oWb.name.indexOf("..") !== -1) {
-      fail("Invalid workbook filename.");
-    }
-    if (oWb.folder !== "REPORT" && oWb.folder !== "SCHEDULE") {
-      fail("Invalid workbook library for " + oWb.name + ".");
-    }
-    if (typeof oWb.content !== "string" || bytes(oWb.content).length !== oWb.byteLength) {
-      fail("Content length mismatch for " + oWb.name + ".");
-    }
-    return oWb;
-  }
+  function validateWorkbook(oWb) {                                                                                                                                                                                                                             
+    if (!oWb || typeof oWb.name !== "string" || oWb.name.length > 255 ||                                                                                                                                                                                       
+        !/^[A-Za-z0-9_][A-Za-z0-9_. -]*\.(xlsm|xlsx|xls)$/i.test(oWb.name) || oWb.name.indexOf("..") !== -1) {                                                                                                                                                 
+      fail("Invalid workbook filename.");                                                                                                                                                                                                                      
+    }                                                                                                                                                                                                                                                          
+    if (oWb.folder !== "REPORT" && oWb.folder !== "SCHEDULE") {                                                                                                                                                                                                
+      fail("Invalid workbook library for " + oWb.name + ".");                                                                                                                                                                                                  
+    }                                                                                                                                                                                                                                                          
+    if (typeof oWb.content !== "string" || bytes(oWb.content).length !== oWb.byteLength) {                                                                                                                                                                     
+      fail("Content length mismatch for " + oWb.name + ".");                                                                                                                                                                                                   
+    }                                                                                                                                                                                                                                                          
+    return oWb;                                                                                                                                                                                                                                                
+  }                                                                                                                                                                                                                                                            
   function readLimited(oStream) {                                                                                                                                                                                                                              
     var oReader = oStream.getReader(), aParts = [], iLength = 0;                                                                                                                                                                                               
     function next() {                                                                                                                                                                                                                                          
@@ -97,18 +97,18 @@ sap.ui.define([], function () {
     var sEnvironment = oRoot.getAttribute("environment"), sModel = oRoot.getAttribute("model");                                                                                                                                                                
     if (!sEnvironment || !sModel) { fail("The archive must identify its source environment and model."); }                                                                                                                                                     
     var aScripts = [], aPackages = [], aTransformations = [], aConversions = [], mNames = Object.create(null);                                                                                                                                                 
-    var oScripts = null, oPkgs = null, oTransforms = null, oConvs = null, oWorkbooks = null;
-    var aWorkbooks = [];                                                                                                                                                                                      
+    var oScripts = null, oPkgs = null, oTransforms = null, oConvs = null, oWorkbooks = null;                                                                                                                                                                   
+    var aWorkbooks = [];                                                                                                                                                                                                                                       
     for (var i = 0; i < oRoot.children.length; i++) {                                                                                                                                                                                                          
       var oChild = oRoot.children[i];                                                                                                                                                                                                                          
       if (oChild.nodeName === "logicScripts") { oScripts = oChild; }                                                                                                                                                                                           
       else if (oChild.nodeName === "packages") { oPkgs = oChild; }                                                                                                                                                                                             
       else if (oChild.nodeName === "transformations") { oTransforms = oChild; }                                                                                                                                                                                
       else if (oChild.nodeName === "conversions") { oConvs = oChild; }                                                                                                                                                                                         
-      else if (oChild.nodeName === "workbooks") { oWorkbooks = oChild; }
+      else if (oChild.nodeName === "workbooks") { oWorkbooks = oChild; }                                                                                                                                                                                       
       else { fail("Unsupported section: " + oChild.nodeName); }                                                                                                                                                                                                
     }                                                                                                                                                                                                                                                          
-    if (!oScripts && !oPkgs && !oTransforms && !oConvs && !oWorkbooks) { fail("The archive must contain a logicScripts, packages, transformations, conversions or workbooks section."); }                                                                                                
+    if (!oScripts && !oPkgs && !oTransforms && !oConvs && !oWorkbooks) { fail("The archive must contain a logicScripts, packages, transformations, conversions or workbooks section."); }                                                                      
     if (oScripts) {                                                                                                                                                                                                                                            
       var aElements = oScripts.children;                                                                                                                                                                                                                       
       if (!aElements.length || aElements.length > MAX_SCRIPTS) { fail("The archive must contain 1 to 2,000 scripts."); }                                                                                                                                       
@@ -191,32 +191,32 @@ sap.ui.define([], function () {
         aConversions.push(oConvers);                                                                                                                                                                                                                           
       }                                                                                                                                                                                                                                                        
     }                                                                                                                                                                                                                                                          
-    if (oWorkbooks) {
-      var aWbEls = oWorkbooks.children, mWbNames = Object.create(null);
-      if (!aWbEls.length || aWbEls.length > MAX_PACKAGES) { fail("The archive must contain 1 to 1,000 workbooks."); }
-      for (var w = 0; w < aWbEls.length; w++) {
-        var oWbEl = aWbEls[w];
-        if (oWbEl.nodeName !== "workbook" || oWbEl.getAttribute("encoding") !== "base64" ||
-            oWbEl.children.length !== 1 || oWbEl.children[0].nodeName !== "content" ||
-            oWbEl.children[0].children.length) { fail("Unsupported workbook XML structure."); }
-        var sWbLength = oWbEl.getAttribute("byteLength");
-        if (!/^(0|[1-9][0-9]*)$/.test(sWbLength)) { fail("Invalid byteLength."); }
-        var oWorkbook = validateWorkbook({ name: oWbEl.getAttribute("name"),
-          folder: oWbEl.getAttribute("folder"), byteLength: Number(sWbLength),
-          content: oWbEl.children[0].textContent.replace(/\s/g, "") });
-        var sWbKey = oWorkbook.folder + "/" + oWorkbook.name.toUpperCase();
-        if (mWbNames[sWbKey]) { fail("Duplicate workbook: " + oWorkbook.name); }
-        mWbNames[sWbKey] = true;
-        aWorkbooks.push(oWorkbook);
-      }
-    }
+    if (oWorkbooks) {                                                                                                                                                                                                                                          
+      var aWbEls = oWorkbooks.children, mWbNames = Object.create(null);                                                                                                                                                                                        
+      if (!aWbEls.length || aWbEls.length > MAX_PACKAGES) { fail("The archive must contain 1 to 1,000 workbooks."); }                                                                                                                                          
+      for (var w = 0; w < aWbEls.length; w++) {                                                                                                                                                                                                                
+        var oWbEl = aWbEls[w];                                                                                                                                                                                                                                 
+        if (oWbEl.nodeName !== "workbook" || oWbEl.getAttribute("encoding") !== "base64" ||                                                                                                                                                                    
+            oWbEl.children.length !== 1 || oWbEl.children[0].nodeName !== "content" ||                                                                                                                                                                         
+            oWbEl.children[0].children.length) { fail("Unsupported workbook XML structure."); }                                                                                                                                                                
+        var sWbLength = oWbEl.getAttribute("byteLength");                                                                                                                                                                                                      
+        if (!/^(0|[1-9][0-9]*)$/.test(sWbLength)) { fail("Invalid byteLength."); }                                                                                                                                                                             
+        var oWorkbook = validateWorkbook({ name: oWbEl.getAttribute("name"),                                                                                                                                                                                   
+          folder: oWbEl.getAttribute("folder"), byteLength: Number(sWbLength),                                                                                                                                                                                 
+          content: oWbEl.children[0].textContent.replace(/\s/g, "") });                                                                                                                                                                                        
+        var sWbKey = oWorkbook.folder + "/" + oWorkbook.name.toUpperCase();                                                                                                                                                                                    
+        if (mWbNames[sWbKey]) { fail("Duplicate workbook: " + oWorkbook.name); }                                                                                                                                                                               
+        mWbNames[sWbKey] = true;                                                                                                                                                                                                                               
+        aWorkbooks.push(oWorkbook);                                                                                                                                                                                                                            
+      }                                                                                                                                                                                                                                                        
+    }                                                                                                                                                                                                                                                          
     return { environment: sEnvironment, model: sModel, scripts: aScripts, packages: aPackages,                                                                                                                                                                 
-      transformations: aTransformations, conversions: aConversions, workbooks: aWorkbooks };                                                                                                                                                                                          
+      transformations: aTransformations, conversions: aConversions, workbooks: aWorkbooks };                                                                                                                                                                   
   }                                                                                                                                                                                                                                                            
   return {                                                                                                                                                                                                                                                     
     validate: validate,                                                                                                                                                                                                                                        
-    validateDm: validateDm,
-    validateWorkbook: validateWorkbook,                                                                                                                                                                                                                                    
+    validateDm: validateDm,                                                                                                                                                                                                                                    
+    validateWorkbook: validateWorkbook,                                                                                                                                                                                                                        
     display: display,                                                                                                                                                                                                                                          
     read: function (oFile) {                                                                                                                                                                                                                                   
       if (!oFile.size || oFile.size > MAX_FILE) { return Promise.reject(new Error("Choose a file of 1 byte to 20 MB.")); }                                                                                                                                     
@@ -229,19 +229,19 @@ sap.ui.define([], function () {
         return readLimited(new Blob([aBuffer]).stream().pipeThrough(new DecompressionStream(sFormat)));                                                                                                                                                        
       }).then(parse);                                                                                                                                                                                                                                          
     },                                                                                                                                                                                                                                                         
-    exportFile: function (sEnvironment, sModel, aScripts, aPackages, aTransformations, aConversions, aWorkbooks) {                                                                                                                                                         
+    exportFile: function (sEnvironment, sModel, aScripts, aPackages, aTransformations, aConversions, aWorkbooks) {                                                                                                                                             
       if (!window.CompressionStream) { return Promise.reject(new Error("Export requires a current browser such as Edge or Chrome.")); }                                                                                                                        
       aScripts = aScripts || [];                                                                                                                                                                                                                               
       aPackages = aPackages || [];                                                                                                                                                                                                                             
       aTransformations = aTransformations || [];                                                                                                                                                                                                               
-      aConversions = aConversions || [];
-      aWorkbooks = aWorkbooks || [];                                                                                                                                                                                                                       
-      if (!aScripts.length && !aPackages.length && !aTransformations.length && !aConversions.length && !aWorkbooks.length) {                                                                                                                                                         
+      aConversions = aConversions || [];                                                                                                                                                                                                                       
+      aWorkbooks = aWorkbooks || [];                                                                                                                                                                                                                           
+      if (!aScripts.length && !aPackages.length && !aTransformations.length && !aConversions.length && !aWorkbooks.length) {                                                                                                                                   
         return Promise.reject(new Error("Select at least one object to export."));                                                                                                                                                                             
       }                                                                                                                                                                                                                                                        
       if (aScripts.length > MAX_SCRIPTS || aPackages.length > MAX_PACKAGES ||                                                                                                                                                                                  
-          aTransformations.length > MAX_PACKAGES || aConversions.length > MAX_PACKAGES ||
-          aWorkbooks.length > MAX_PACKAGES) {                                                                                                                                                                      
+          aTransformations.length > MAX_PACKAGES || aConversions.length > MAX_PACKAGES ||                                                                                                                                                                      
+          aWorkbooks.length > MAX_PACKAGES) {                                                                                                                                                                                                                  
         return Promise.reject(new Error("The export exceeds the supported number of objects."));                                                                                                                                                               
       }                                                                                                                                                                                                                                                        
       var sXml = '<?xml version="1.0" encoding="UTF-8"?>\n<bpcExport version="1.0" environment="' + escape(sEnvironment) +                                                                                                                                     
@@ -284,16 +284,16 @@ sap.ui.define([], function () {
         });                                                                                                                                                                                                                                                    
         sXml += '</conversions>';                                                                                                                                                                                                                              
       }                                                                                                                                                                                                                                                        
-      if (aWorkbooks.length) {
-        sXml += '<workbooks>';
-        aWorkbooks.forEach(function (oWb) {
-          validateWorkbook(oWb);
-          sXml += '<workbook name="' + escape(oWb.name) + '" folder="' + escape(oWb.folder) +
-            '" encoding="base64" byteLength="' + oWb.byteLength + '"><content>' + oWb.content +
-            '</content></workbook>';
-        });
-        sXml += '</workbooks>';
-      }
+      if (aWorkbooks.length) {                                                                                                                                                                                                                                 
+        sXml += '<workbooks>';                                                                                                                                                                                                                                 
+        aWorkbooks.forEach(function (oWb) {                                                                                                                                                                                                                    
+          validateWorkbook(oWb);                                                                                                                                                                                                                               
+          sXml += '<workbook name="' + escape(oWb.name) + '" folder="' + escape(oWb.folder) +                                                                                                                                                                  
+            '" encoding="base64" byteLength="' + oWb.byteLength + '"><content>' + oWb.content +                                                                                                                                                                
+            '</content></workbook>';                                                                                                                                                                                                                           
+        });                                                                                                                                                                                                                                                    
+        sXml += '</workbooks>';                                                                                                                                                                                                                                
+      }                                                                                                                                                                                                                                                        
       sXml += '</bpcExport>';                                                                                                                                                                                                                                  
       var oBlob = new Blob([sXml], { type: "application/xml;charset=utf-8" });                                                                                                                                                                                 
       if (oBlob.size > MAX_XML) { return Promise.reject(new Error("The export exceeds 50 MB of XML.")); }                                                                                                                                                      
