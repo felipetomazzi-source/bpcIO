@@ -213,9 +213,16 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_workbook_ext_xlsm TYPE string VALUE '.XLSM' ##NO_TEXT.
     CONSTANTS c_workbook_ext_xlsx TYPE string VALUE '.XLSX' ##NO_TEXT.
     CONSTANTS c_workbook_ext_xls TYPE string VALUE '.XLS' ##NO_TEXT.
-    "! Directory holding one WebExcel library of a model.
+    "! Resolves the directory holding one WebExcel library of a model. The
+    "! physical layout differs between systems/models: some keep the library
+    "! under the environment folder ({env}\WEBEXCEL\{model}\{lib}, like
+    "! ADMINAPP), others under a model folder ({env}\{model}\WEBEXCEL\{lib},
+    "! like DATAMANAGER). Both candidates are probed and the existing one is
+    "! returned; if neither exists the first candidate is returned so callers
+    "! surface a consistent "not found".
     METHODS get_webexcel_directory
-      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+      IMPORTING io_files TYPE REF TO cl_ujf_file_service_mgr
+                iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
                 iv_library TYPE string
       RETURNING VALUE(rv_directory) TYPE string.
     "! Maps a client folder token ('REPORT' / 'SCHEDULE') to its library folder.
@@ -739,7 +746,32 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD get_webexcel_directory.
-    rv_directory = |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ iv_model }\\{ c_webexcel_folder }\\{ iv_library }\\|.
+    DATA lt_candidates TYPE string_table.
+* Candidate 1: category before model (mirrors how Logic Scripts sit under
+* {env}\ADMINAPP\{model}). Candidate 2: model before category (mirrors how
+* Data Manager files sit under {env}\{model}\DATAMANAGER\{folder}).
+    APPEND |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ c_webexcel_folder }\\{ iv_model }\\{ iv_library }\\| TO lt_candidates.
+    APPEND |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ iv_model }\\{ c_webexcel_folder }\\{ iv_library }\\| TO lt_candidates.
+    LOOP AT lt_candidates INTO DATA(lv_candidate).
+      IF rv_directory IS INITIAL.
+        rv_directory = lv_candidate.
+      ENDIF.
+      DATA lv_dirname TYPE ujf_doctree-docname.
+      DATA lv_exists TYPE uj_flg.
+      lv_dirname = lv_candidate.
+      CLEAR lv_exists.
+      TRY.
+          io_files->check_directory_exist(
+            EXPORTING i_dirname = lv_dirname i_appset_id = iv_environment
+            IMPORTING e_result = lv_exists ).
+        CATCH cx_ujf_file_service_error.
+          CLEAR lv_exists.
+      ENDTRY.
+      IF lv_exists = abap_true.
+        rv_directory = lv_candidate.
+        RETURN.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
   METHOD workbook_library.
@@ -759,7 +791,7 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     DATA(lo_files) = cl_ujf_file_service_mgr=>factory(
       i_appset = iv_environment is_user = ls_user ).
     DATA lv_directory TYPE ujf_doctree-docname.
-    lv_directory = get_webexcel_directory( iv_environment = iv_environment
+    lv_directory = get_webexcel_directory( io_files = lo_files iv_environment = iv_environment
                                            iv_model = iv_model iv_library = iv_library ).
 * The file service lists one document type at a time, so query each
 * recognised workbook extension and merge the results.
@@ -770,10 +802,16 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       lv_doctype = substring( val = lv_ext off = 1 ).
       DATA lt_documents TYPE ujf_t_doc.
       CLEAR lt_documents.
-      lo_files->list_directory(
-        EXPORTING i_dirname = lv_directory i_doctype = lv_doctype
-                  i_sort = abap_true i_include_subfldrs = abap_false
-        IMPORTING et_document_list = lt_documents ).
+* A model may have a report library but no input schedule library (or vice
+* versa); an absent or empty library must yield no rows, not an error.
+      TRY.
+          lo_files->list_directory(
+            EXPORTING i_dirname = lv_directory i_doctype = lv_doctype
+                      i_sort = abap_true i_include_subfldrs = abap_false
+            IMPORTING et_document_list = lt_documents ).
+        CATCH cx_ujf_file_service_error.
+          CLEAR lt_documents.
+      ENDTRY.
       LOOP AT lt_documents INTO DATA(ls_document).
         DATA lt_parts TYPE string_table.
         SPLIT ls_document-docname AT '\' INTO TABLE lt_parts.
@@ -812,7 +850,7 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     DATA(ls_user) = VALUE uj0_s_user( user_id = sy-uname langu = sy-langu ).
     DATA(lo_files) = cl_ujf_file_service_mgr=>factory(
       i_appset = iv_environment is_user = ls_user ).
-    DATA(lv_directory) = get_webexcel_directory( iv_environment = iv_environment
+    DATA(lv_directory) = get_webexcel_directory( io_files = lo_files iv_environment = iv_environment
                                                  iv_model = iv_model iv_library = lv_library ).
     lo_files->get_document(
       EXPORTING i_docname = |{ lv_directory }{ iv_name }| i_retzip = abap_false
@@ -880,7 +918,7 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
         APPEND ls_result TO rt_results.
         CONTINUE.
       ENDIF.
-      lv_directory = get_webexcel_directory( iv_environment = iv_environment
+      lv_directory = get_webexcel_directory( io_files = lo_files iv_environment = iv_environment
                                              iv_model = iv_model iv_library = lv_library ).
       lv_path = |{ lv_directory }{ lv_name }|.
       IF strlen( lv_path ) > c_docname_length.
