@@ -1053,20 +1053,47 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     IF <lt_data> IS NOT ASSIGNED.
       RETURN.
     ENDIF.
+* The row structure read_mbr_data builds names its columns after the
+* attributes; the member id is the 'ID' attribute and the text is
+* 'EVDESCRIPTION'. Resolve those column names defensively (several BPC
+* releases have used ID / MEMBER_NAME / the dimension id, and
+* EVDESCRIPTION / DESCRIPTION) so members are never silently dropped.
+    DATA lv_id_col TYPE string.
+    DATA lv_desc_col TYPE string.
+    DATA(lo_line) = CAST cl_abap_structdescr(
+      CAST cl_abap_tabledescr( cl_abap_typedescr=>describe_by_data( <lt_data> ) )->get_table_line_type( ) ).
+    LOOP AT lo_line->components INTO DATA(ls_comp).
+      DATA(lv_col) = to_upper( ls_comp-name ).
+      IF lv_id_col IS INITIAL AND ( lv_col = 'ID' OR lv_col = 'MEMBER_NAME'
+          OR lv_col = 'MEMBER' OR lv_col = iv_dimension ).
+        lv_id_col = ls_comp-name.
+      ENDIF.
+      IF lv_desc_col IS INITIAL AND ( lv_col = 'EVDESCRIPTION' OR lv_col = 'DESCRIPTION' ).
+        lv_desc_col = ls_comp-name.
+      ENDIF.
+    ENDLOOP.
+    IF lv_id_col IS INITIAL.
+      lv_id_col = 'ID'.
+    ENDIF.
     FIELD-SYMBOLS <ls_row> TYPE any.
     FIELD-SYMBOLS <lv_val> TYPE any.
     LOOP AT <lt_data> ASSIGNING <ls_row>.
       DATA ls_member TYPE ty_member.
       CLEAR ls_member.
-      ASSIGN COMPONENT 'DIMENSION' OF STRUCTURE <ls_row> TO <lv_val>.
+      ASSIGN COMPONENT lv_id_col OF STRUCTURE <ls_row> TO <lv_val>.
       IF sy-subrc = 0.
         ls_member-id = <lv_val>.
       ENDIF.
-      ASSIGN COMPONENT 'DESCRIPTION' OF STRUCTURE <ls_row> TO <lv_val>.
-      IF sy-subrc = 0.
-        ls_member-description = <lv_val>.
+      IF lv_desc_col IS NOT INITIAL.
+        ASSIGN COMPONENT lv_desc_col OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0.
+          ls_member-description = <lv_val>.
+        ENDIF.
       ENDIF.
       LOOP AT lt_attr_name INTO DATA(lv_attr_name).
+        IF to_upper( lv_attr_name ) = 'ID' OR to_upper( lv_attr_name ) = 'EVDESCRIPTION'.
+          CONTINUE.
+        ENDIF.
         ASSIGN COMPONENT lv_attr_name OF STRUCTURE <ls_row> TO <lv_val>.
         IF sy-subrc = 0 AND <lv_val> IS NOT INITIAL.
           APPEND VALUE #( id = lv_attr_name value = |{ <lv_val> }| ) TO ls_member-properties.
