@@ -133,7 +133,28 @@ sap.ui.define([
         if (iGeneration === this._generation) { this._error(e); }                                                                                                                                                                                              
       }.bind(this));                                                                                                                                                                                                                                           
     },                                                                                                                                                                                                                                                         
-    _target: function () { return { environment: this._get("environment"), model: this._get("model") }; },                                                                                                                                                     
+    _target: function () { return { environment: this._get("environment"), model: this._get("model") }; },
+    _refreshObjectLists: function () {
+      if (this._destroyed || !this._get("model")) { return; }
+      var mTarget = this._target(), iGeneration = this._generation;
+      var pScripts = this._request("scripts", mTarget).then(function (oData) {
+        if (Array.isArray(oData.scripts)) { this._scripts = oData.scripts; }
+      }.bind(this));
+      var pPackages = this._request("packages", mTarget).then(function (oData) {
+        if (Array.isArray(oData.packages)) { this._packages = oData.packages; }
+      }.bind(this));
+      var pTransformations = this._request("transformations", mTarget).then(function (oData) {
+        if (Array.isArray(oData.transformations)) { this._transformations = oData.transformations; }
+      }.bind(this));
+      var pConversions = this._request("conversions", mTarget).then(function (oData) {
+        if (Array.isArray(oData.conversions)) { this._conversions = oData.conversions; }
+      }.bind(this));
+      Promise.all([pScripts, pPackages, pTransformations, pConversions]).then(function () {
+        if (this._destroyed || iGeneration !== this._generation) { return; }
+        this._rebuildObjects();
+        this._set("objectsLoaded", true);
+      }.bind(this)).catch(function () { /* keep the import summary visible even if the reload fails */ });
+    },                                                                                                                                                     
     _rebuildObjects: function () {                                                                                                                                                                                                                             
       var aObjects = [];                                                                                                                                                                                                                                       
       (this._scripts || []).forEach(function (oScript) {                                                                                                                                                                                                       
@@ -338,7 +359,14 @@ sap.ui.define([
           }.bind(this)                                                                                                                                                                                                                                         
         });                                                                                                                                                                                                                                                    
     },                                                                                                                                                                                                                                                         
-    _submitImport: function (mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs) {                                                                                                             
+    _submitImport: function (mTarget, aScripts, bReplace, aPackages, bReplacePkgs, aTransformations, bReplaceTrans, aConversions, bReplaceConvs) {
+      var mTotals = { changed: 0, skipped: 0, failed: 0 };
+      var fnTally = function (oData) {
+        mTotals.changed += oData.changed || 0;
+        mTotals.skipped += oData.skipped || 0;
+        mTotals.failed += oData.failed || 0;
+        return oData;
+      };                                                                                                             
       this._set("importBusy", true);                                                                                                                                                                                                                           
       this._set("importResults", []);                                                                                                                                                                                                                          
       this._set("importSummary", "");                                                                                                                                                                                                                          
@@ -359,24 +387,30 @@ sap.ui.define([
           return this._request("import", mData, "POST").then(function (oData) {                                                                                                                                                                                
             if (!Array.isArray(oData.results)) { throw new Error("Invalid import response."); }                                                                                                                                                                
             this._set("importResults", oData.results);                                                                                                                                                                                                         
-            this._set("importSummary", oData.changed + " script(s) written, " + oData.skipped + " skipped, " + oData.failed + " failed.");                                                                                                                     
+            this._set("importSummary", oData.changed + " script(s) written, " + oData.skipped + " skipped, " + oData.failed + " failed.");
+            fnTally(oData);                                                                                                                     
             return oData;                                                                                                                                                                                                                                      
           }.bind(this));                                                                                                                                                                                                                                       
         }.bind(this));                                                                                                                                                                                                                                         
       }                                                                                                                                                                                                                                                        
       if (aPackages.length) {                                                                                                                                                                                                                                  
-        p = p.then(function () { return this._submitPackageImport(mTarget, aPackages, bReplacePkgs); }.bind(this));                                                                                                                                            
+        p = p.then(function () { return this._submitPackageImport(mTarget, aPackages, bReplacePkgs).then(fnTally); }.bind(this));                                                                                                                                            
       }                                                                                                                                                                                                                                                        
       if (aTransformations.length) {                                                                                                                                                                                                                           
-        p = p.then(function () { return this._submitDmImport(mTarget, aTransformations, bReplaceTrans, "transformations/import", "transformation"); }.bind(this));                                                                                             
+        p = p.then(function () { return this._submitDmImport(mTarget, aTransformations, bReplaceTrans, "transformations/import", "transformation").then(fnTally); }.bind(this));                                                                                             
       }                                                                                                                                                                                                                                                        
       if (aConversions.length) {                                                                                                                                                                                                                               
-        p = p.then(function () { return this._submitDmImport(mTarget, aConversions, bReplaceConvs, "conversions/import", "conversion"); }.bind(this));                                                                                                         
+        p = p.then(function () { return this._submitDmImport(mTarget, aConversions, bReplaceConvs, "conversions/import", "conversion").then(fnTally); }.bind(this));                                                                                                         
       }                                                                                                                                                                                                                                                        
       p.then(function () {                                                                                                                                                                                                                                     
         this._set("importBusy", false);                                                                                                                                                                                                                        
         this._set("busy", false);                                                                                                                                                                                                                              
-        this.onRefresh();                                                                                                                                                                                                                                      
+        var iTotal = mTotals.changed + mTotals.skipped + mTotals.failed;
+        var sMessage = "Import finished: " + mTotals.changed + " of " + iTotal + " object(s) written, " +
+          mTotals.skipped + " skipped, " + mTotals.failed + " failed.";
+        this._set("status", sMessage);
+        this._refreshObjectLists();
+        if (mTotals.failed) { MessageBox.warning(sMessage); } else { MessageBox.success(sMessage); }                                                                                                                                                                                                                                      
       }.bind(this)).catch(function (e) {                                                                                                                                                                                                                       
         this._set("importBusy", false);                                                                                                                                                                                                                        
         this._error(e);                                                                                                                                                                                                                                        
