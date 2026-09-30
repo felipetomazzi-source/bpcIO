@@ -169,8 +169,8 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
       RETURNING VALUE(rt_results) TYPE ty_dm_imports
       RAISING cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
     "! Lists the EPM Add-in workbooks (reports and input schedules) of a model.
-    "! Reports live under WEBEXCEL\REPORTLIBRARY and input schedules under
-    "! WEBEXCEL\SCHEDULELIBRARY. The returned folder distinguishes the two.
+    "! Reports live under EEXCEL\REPORTS and input schedules under
+    "! EEXCEL\INPUT SCHEDULES. The returned folder distinguishes the two.
     METHODS get_workbooks
       IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
       RETURNING VALUE(rt_files) TYPE ty_workbooks
@@ -205,19 +205,21 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS c_transformation_ext TYPE string VALUE '.TDM' ##NO_TEXT.
     CONSTANTS c_conversion_ext TYPE string VALUE '.CDM' ##NO_TEXT.
     "! EPM Add-in workbooks live under the model's WebExcel libraries:
-    "! reports under REPORTLIBRARY and input schedules under SCHEDULELIBRARY.
-    CONSTANTS c_webexcel_folder TYPE string VALUE 'WEBEXCEL' ##NO_TEXT.
-    CONSTANTS c_report_library TYPE string VALUE 'REPORTLIBRARY' ##NO_TEXT.
-    CONSTANTS c_schedule_library TYPE string VALUE 'SCHEDULELIBRARY' ##NO_TEXT.
+    "! reports under EEXCEL\REPORTS and input schedules under
+    "! EEXCEL\INPUT SCHEDULES (the physical file-service folder names, which
+    "! differ from the logical library names shown in the BPC web client).
+    CONSTANTS c_webexcel_folder TYPE string VALUE 'EEXCEL' ##NO_TEXT.
+    CONSTANTS c_report_library TYPE string VALUE 'REPORTS' ##NO_TEXT.
+    CONSTANTS c_schedule_library TYPE string VALUE 'INPUT SCHEDULES' ##NO_TEXT.
     "! Recognised workbook file extensions, checked in this order.
     CONSTANTS c_workbook_ext_xlsm TYPE string VALUE '.XLSM' ##NO_TEXT.
     CONSTANTS c_workbook_ext_xlsx TYPE string VALUE '.XLSX' ##NO_TEXT.
     CONSTANTS c_workbook_ext_xls TYPE string VALUE '.XLS' ##NO_TEXT.
-    "! Resolves the directory holding one WebExcel library of a model. The
-    "! physical layout differs between systems/models: some keep the library
-    "! under the environment folder ({env}\WEBEXCEL\{model}\{lib}, like
-    "! ADMINAPP), others under a model folder ({env}\{model}\WEBEXCEL\{lib},
-    "! like DATAMANAGER). Both candidates are probed and the existing one is
+    "! Resolves the directory holding one EPM WebExcel library of a model.
+    "! The physical file-service layout is {env}\{model}\EEXCEL\{library}
+    "! (e.g. \ROOT\WEBFOLDERS\CH_PLANNING\AGGR_OPEX\EEXCEL\REPORTS\). To stay
+    "! resilient to layout variations, both the model-before-category and
+    "! category-before-model candidates are probed and the existing one is
     "! returned; if neither exists the first candidate is returned so callers
     "! surface a consistent "not found".
     METHODS get_webexcel_directory
@@ -747,11 +749,10 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
 
   METHOD get_webexcel_directory.
     DATA lt_candidates TYPE string_table.
-* Candidate 1: category before model (mirrors how Logic Scripts sit under
-* {env}\ADMINAPP\{model}). Candidate 2: model before category (mirrors how
-* Data Manager files sit under {env}\{model}\DATAMANAGER\{folder}).
-    APPEND |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ c_webexcel_folder }\\{ iv_model }\\{ iv_library }\\| TO lt_candidates.
+* Confirmed layout first: model before category, i.e.
+* {env}\{model}\EEXCEL\{library}. Category-before-model kept as a fallback.
     APPEND |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ iv_model }\\{ c_webexcel_folder }\\{ iv_library }\\| TO lt_candidates.
+    APPEND |\\ROOT\\WEBFOLDERS\\{ iv_environment }\\{ c_webexcel_folder }\\{ iv_model }\\{ iv_library }\\| TO lt_candidates.
     LOOP AT lt_candidates INTO DATA(lv_candidate).
       IF rv_directory IS INITIAL.
         rv_directory = lv_candidate.
