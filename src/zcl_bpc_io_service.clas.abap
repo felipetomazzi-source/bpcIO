@@ -194,8 +194,8 @@ class zcl_bpc_io_service definition public final create public.
       raising cx_uj_no_auth cx_uj_input_error cx_uj_static_check.
     "! Paired workbook name for a .TDM/.CDM definition file.
     methods dm_workbook_name
-      importing iv_name type uj_docname iv_ext type string
-      returning value(rv_workbook) type uj_docname.
+      importing iv_name type string iv_ext type string
+      returning value(rv_workbook) type string.
     "! Directory holding the Logic Scripts of a model.
     methods get_directory
       importing iv_environment type uj_appset_id iv_model type uj_appl_id
@@ -541,9 +541,11 @@ class zcl_bpc_io_service implementation.
     data(ls_user) = value uj0_s_user( user_id = sy-uname langu = sy-langu ).
     data(lo_files) = cl_ujf_file_service_mgr=>factory(
       i_appset = iv_environment is_user = ls_user ).
-    data(lv_directory) = get_dm_directory( iv_environment = iv_environment
-                                           iv_model = iv_model iv_folder = iv_folder ).
-    data(lv_doctype) = substring( val = iv_ext off = 1 ).
+    data lv_directory type ujf_doctree-docname.
+    lv_directory = get_dm_directory( iv_environment = iv_environment
+                                     iv_model = iv_model iv_folder = iv_folder ).
+    data lv_doctype type ujf_doc-doctype.
+    lv_doctype = substring( val = iv_ext off = 1 ).
     lo_files->list_directory(
       exporting i_dirname = lv_directory i_doctype = lv_doctype
                 i_sort = abap_true i_include_subfldrs = abap_false
@@ -608,6 +610,7 @@ class zcl_bpc_io_service implementation.
           lt_written type ty_dm_files,
           lv_name type string,
           lv_docname type uj_docname,
+          lv_workbook type uj_docname,
           lv_path type string,
           lv_exists type abap_bool,
           lv_written type i.
@@ -650,7 +653,7 @@ class zcl_bpc_io_service implementation.
             i_docname = lv_docname i_doc_content = ls_file-content
             i_compression = abap_false i_splice_zip = abap_false ).
           if ls_file-workbook is not initial.
-            data(lv_workbook) = |{ lv_directory }{ dm_workbook_name( iv_name = lv_name iv_ext = iv_ext ) }|.
+            lv_workbook = |{ lv_directory }{ dm_workbook_name( iv_name = lv_name iv_ext = iv_ext ) }|.
             lo_files->put_document(
               i_docname = lv_workbook i_doc_content = ls_file-workbook
               i_compression = abap_false i_splice_zip = abap_false ).
