@@ -1038,7 +1038,7 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     ENDTRY.
     DATA lt_attr_name TYPE uja_t_attr_name.
     LOOP AT lt_attr INTO DATA(ls_attr).
-      APPEND ls_attr-attribute TO lt_attr_name.
+      APPEND ls_attr-attribute_name TO lt_attr_name.
     ENDLOOP.
     DATA lr_data TYPE REF TO data.
     TRY.
