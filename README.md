@@ -10,14 +10,16 @@ A simple SAP BPC web application for **exporting and importing BPC objects** bet
 | Data Manager Packages | Package definitions (group, type, chain, script sequence) | Imported/replaced via `cl_ujd_package` |
 | Transformation Files | `.TDM` definitions + their `.xls` workbook | Stored in the model's Data Manager `TRANSFORMATIONFILES` folder |
 | Conversion Files | `.CDM` definitions + their `.xls` workbook | Stored in the model's Data Manager `CONVERSIONFILES` folder |
+| EPM Workbooks | `.XLSM` / `.XLSX` / `.XLS` reports and input schedules | Stored under the model's `EEXCEL\REPORTS` (reports) and `EEXCEL\INPUT SCHEDULES` (input schedules) file-service folders |
 
 ## What it does
 
 - Lists the available **environments** (AppSets) and **models**.
-- Lists the **Logic Scripts**, **Data Manager Packages**, **Transformation Files** and **Conversion Files** of a model.
+- Lists the **Logic Scripts**, **Data Manager Packages**, **Transformation Files**, **Conversion Files** and **EPM Workbooks** (reports and input schedules) of a model.
+- Objects are grouped by type in the browse list. Above the list, a **per-type toggle button** for each type (e.g. `Conversion Files (2/3)`) selects or deselects every object of that type in one click and shows a live selected/total count.
 - **Exports** a selection of objects to a single compressed XML archive.
-- **Imports** an archive back into a model, with a side-by-side **comparison** of the uploaded version versus the active SAP version.
-- Reports the result of every object on import: `WRITTEN`, `REPLACED`, `SKIPPED`, or `FAILED`.
+- **Imports** an archive back into a model with **Import into BPC**, with a side-by-side **comparison** of the uploaded version versus the active SAP version.
+- Reports the result of every object on import: `WRITTEN`, `REPLACED`, `SKIPPED`, or `FAILED`, plus a per-type summary of how many were written, skipped and failed.
 
 ## Architecture
 
@@ -37,7 +39,7 @@ ZCL_BPC_IO_SERVICE  (business logic, standard BPC APIs)
 ### Backend (ABAP)
 
 - **`ZCL_BPC_IO_HTTP`** — ICF HTTP handler. Routes requests, validates input, and serialises JSON responses.
-- **`ZCL_BPC_IO_SERVICE`** — encapsulates all BPC access (environments, models, scripts, packages, transformation/conversion files) using the standard BPC APIs (`cl_ujf_file_service_mgr` for Logic Scripts and Data Manager files, `cl_ujd_package` for packages).
+- **`ZCL_BPC_IO_SERVICE`** — encapsulates all BPC access (environments, models, scripts, packages, transformation/conversion files, EPM workbooks) using the standard BPC APIs (`cl_ujf_file_service_mgr` for Logic Scripts, Data Manager files and EPM workbooks, `cl_ujd_package` for packages).
 
 ### Frontend (SAPUI5)
 
@@ -69,16 +71,20 @@ Base path: `/sap/bc/zbpc_io`
 | GET | `/transformation?environment=<appset>&model=<model>&name=<name.TDM>` | Read one transformation + its workbook |
 | GET | `/conversions?environment=<appset>&model=<model>` | List conversion files (`.CDM`) |
 | GET | `/conversion?environment=<appset>&model=<model>&name=<name.CDM>` | Read one conversion + its workbook |
+| GET | `/workbooks?environment=<appset>&model=<model>` | List EPM workbooks (reports + input schedules) |
+| GET | `/workbook?environment=<appset>&model=<model>&folder=<REPORT\|SCHEDULE>&name=<name>` | Read one workbook (content Base64) |
 | POST | `/import` | Import Logic Scripts |
 | POST | `/packages/import` | Import Data Manager Packages |
 | POST | `/transformations/import` | Import transformation files |
 | POST | `/conversions/import` | Import conversion files |
+| POST | `/workbooks/import` | Import EPM workbooks |
 
 Import requests are `application/x-www-form-urlencoded` with indexed fields:
 
 - **Scripts:** `count`, `name1..nameN`, `content1..contentN` (Base64), `replace`.
 - **Packages:** `count`, `groupN`, `idN`, `descriptionN`, `typeN`, `userGroupN`, `chainN`, `teamN`, `scriptN`, `replace`.
 - **Transformations/Conversions:** `count`, `nameN`, `contentN` (Base64 definition), `workbookN` (Base64 `.xls`, optional), `replace`.
+- **Workbooks:** `count`, `nameN`, `folderN` (`REPORT` or `SCHEDULE`), `contentN` (Base64 `.xlsm`/`.xlsx`/`.xls`), `replace`.
 
 Import responses return a summary plus per-object results:
 
@@ -89,7 +95,7 @@ Import responses return a summary plus per-object results:
 
 ## Archive format
 
-Exports are gzip-compressed XML, named `bpc_<environment>_<model>_objects.xml.gz`:
+Exports are gzip-compressed XML, named `<environment>_<model>_<timestamp>.xml.gz` (the timestamp is an ISO instant with filesystem-safe characters, so repeated exports of the same environment/model don't collide):
 
 ```xml
 <bpcExport version="1.0" environment="..." model="..." exportedAt="...">
@@ -116,10 +122,15 @@ Exports are gzip-compressed XML, named `bpc_<environment>_<model>_objects.xml.gz
       <workbook>BASE64_XLS</workbook>
     </conversion>
   </conversions>
+  <workbooks>
+    <workbook name="MY_REPORT.XLSM" folder="REPORT" encoding="base64" byteLength="123456">
+      <content>BASE64_CONTENT</content>
+    </workbook>
+  </workbooks>
 </bpcExport>
 ```
 
-Logic Script content is Base64-encoded and preserves the original byte encoding, so scripts round-trip exactly. Transformation/conversion definitions (`.TDM`/`.CDM`) and their paired `.xls` workbooks are also stored Base64-encoded so they round-trip byte-for-byte.
+Logic Script content is Base64-encoded and preserves the original byte encoding, so scripts round-trip exactly. Transformation/conversion definitions (`.TDM`/`.CDM`) and their paired `.xls` workbooks are also stored Base64-encoded so they round-trip byte-for-byte. EPM Workbooks are stored Base64-encoded with a `folder` attribute of `REPORT` (reports) or `SCHEDULE` (input schedules) that records which library each belongs to.
 
 ## Limits
 
@@ -131,6 +142,8 @@ Logic Script content is Base64-encoded and preserves the original byte encoding,
 | Package script content per import | 5 MB (decoded) |
 | Transformation/conversion files per import | 1000 |
 | Transformation/conversion content per import | 20 MB (decoded, definition + workbook) |
+| EPM Workbooks per import | 500 |
+| EPM Workbook content per import | 50 MB (decoded; `.xlsm` reports are large) |
 | Export size | 50 MB of XML |
 
 ## Requirements & authorization
@@ -139,7 +152,8 @@ Logic Script content is Base64-encoded and preserves the original byte encoding,
 - Importing Logic Scripts requires the same task authorization as the BPC script editor.
 - Importing packages requires the same authorization as the BPC package editor.
 - Importing transformation/conversion files requires the same authorization as the BPC Data Manager transformation/conversion editors.
-- SAPUI5 1.52.18 or later (served from the SAP UI5 repository).
+- Importing EPM workbooks requires the same authorization as writing report/input-schedule files through the BPC EPM file service.
+- SAPUI5 1.52 or later (served from the SAP UI5 repository). Validated against the 1.52.x runtime shipped with BPC 2021.8 web client; the UI avoids APIs added after 1.52 (for example, `sap.m.List` `groupHeaderFactory`).
 
 ## Installation
 
