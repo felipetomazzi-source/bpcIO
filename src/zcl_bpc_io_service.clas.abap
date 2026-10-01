@@ -110,6 +110,13 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
              failed TYPE i,
              messages TYPE string_table,
            END OF ty_data_import_result.
+    TYPES: BEGIN OF ty_comment_import_result,
+             submitted TYPE i,
+             success TYPE i,
+             skipped TYPE i,
+             failed TYPE i,
+             messages TYPE string_table,
+           END OF ty_comment_import_result.
     TYPE-POOLS uje0 .
     " Import results. WRITTEN and REPLACED scripts were stored in SAP,
     " SKIPPED ones already existed and FAILED ones were refused by BPC.
@@ -252,11 +259,29 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 iv_csv TYPE string
       RETURNING VALUE(rs_result) TYPE ty_data_import_result
       RAISING cx_uj_static_check.
+    "! Adds CSV comments (the format get_comments produces) to a model through
+    "! the BPC comment manager. Comments whose intersection, author and text
+    "! already exist are skipped. With iv_keep_author the USER_ID and
+    "! DATEWRITTEN columns are kept, otherwise the importing user and time.
+    METHODS import_comments
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                iv_csv TYPE string iv_keep_author TYPE abap_bool
+      RETURNING VALUE(rs_result) TYPE ty_comment_import_result
+      RAISING cx_uj_static_check.
 
   PRIVATE SECTION.
     METHODS csv_field IMPORTING iv_value TYPE string RETURNING VALUE(rv_field) TYPE string.
     "! Splits one CSV line into its fields (double-quoted fields may hold commas).
     METHODS parse_csv_line IMPORTING iv_line TYPE string RETURNING VALUE(rt_fields) TYPE string_table.
+    "! Splits CSV text into records; a double-quoted field may hold line breaks.
+    METHODS split_csv_records IMPORTING iv_csv TYPE string RETURNING VALUE(rt_records) TYPE string_table.
+    "! DDIC name of the model's comment table, e.g. /1CPMB/BSJY1CMT.
+    METHODS comment_table_name
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+      RETURNING VALUE(rv_tabname) TYPE tabname
+      RAISING cx_uj_static_check.
+    "! Adds a message to an import result unless it is already there or the list is full.
+    METHODS add_import_message IMPORTING iv_text TYPE string CHANGING ct_messages TYPE string_table.
     "! A data import reports at most this many distinct messages.
     CONSTANTS c_max_import_messages TYPE i VALUE 100 ##NO_TEXT.
     "! Logic Script documents live in the model's admin folder.
@@ -1483,37 +1508,7 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     IF lt_dimensions IS INITIAL.
       RAISE EXCEPTION TYPE cx_uj_no_auth.
     ENDIF.
-* Get the prefix pair (appset + appl) needed by CL_UJ_GEN_TABLE.
-    DATA ls_prefix TYPE uja_s_prefix.
-    SELECT SINGLE appset_prefix INTO ls_prefix-appset_prefix
-      FROM uja_appset_info WHERE appset_id = iv_environment.
-    IF sy-subrc <> 0.
-      RAISE EXCEPTION TYPE cx_uj_no_auth.
-    ENDIF.
-    DATA(lo_app_mgr) = cl_uja_bpc_admin_factory=>get_application_manager(
-      i_appset_id = iv_environment i_application_id = iv_model ).
-    DATA ls_app TYPE uja_s_application.
-    TRY.
-        lo_app_mgr->get( IMPORTING es_application = ls_app ).
-      CATCH cx_uja_admin_error cx_uj_no_auth cx_uj_static_check.
-        RAISE EXCEPTION TYPE cx_uj_no_auth.
-    ENDTRY.
-    ls_prefix-appl_prefix = ls_app-appl_prefix.
-* Resolve the actual DDIC table name, e.g. /1CPMB/BSJY1CMT.
-    DATA lo_gentab TYPE REF TO cl_uj_gen_table.
-    cl_uj_gen_table=>get_instance( IMPORTING eo_instance = lo_gentab ).
-    DATA lv_tabname TYPE tabname.
-    DATA lv_gotstate TYPE ddgotstate.
-    TRY.
-        lo_gentab->get_ddic_table_name(
-          EXPORTING i_table = cl_uj_gen_table=>gc_table_comment is_prefix = ls_prefix
-          IMPORTING e_tabname = lv_tabname e_gotstate = lv_gotstate ).
-      CATCH cx_uj_gen_ddic_error.
-        RAISE EXCEPTION TYPE cx_uj_static_check.
-    ENDTRY.
-    IF lv_gotstate <> uj00_cs_gotstate-active OR lv_tabname IS INITIAL.
-      RAISE EXCEPTION TYPE cx_uj_static_check.
-    ENDIF.
+    DATA(lv_tabname) = comment_table_name( iv_environment = iv_environment iv_model = iv_model ).
 * Build a WHERE clause from the dimension filters (sign I, option EQ).
     DATA lt_where TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
     DATA lv_clause TYPE string.
@@ -1599,6 +1594,351 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf && lv_line.
     ENDLOOP.
     rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
+  ENDMETHOD.
+
+
+  METHOD comment_table_name.
+* Get the prefix pair (appset + appl) needed by CL_UJ_GEN_TABLE.
+    DATA ls_prefix TYPE uja_s_prefix.
+    SELECT SINGLE appset_prefix INTO ls_prefix-appset_prefix
+      FROM uja_appset_info WHERE appset_id = iv_environment.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA(lo_app_mgr) = cl_uja_bpc_admin_factory=>get_application_manager(
+      i_appset_id = iv_environment i_application_id = iv_model ).
+    DATA ls_app TYPE uja_s_application.
+    TRY.
+        lo_app_mgr->get( IMPORTING es_application = ls_app ).
+      CATCH cx_uja_admin_error cx_uj_no_auth cx_uj_static_check.
+        RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDTRY.
+    ls_prefix-appl_prefix = ls_app-appl_prefix.
+* Resolve the actual DDIC table name.
+    DATA lo_gentab TYPE REF TO cl_uj_gen_table.
+    cl_uj_gen_table=>get_instance( IMPORTING eo_instance = lo_gentab ).
+    DATA lv_gotstate TYPE ddgotstate.
+    TRY.
+        lo_gentab->get_ddic_table_name(
+          EXPORTING i_table = cl_uj_gen_table=>gc_table_comment is_prefix = ls_prefix
+          IMPORTING e_tabname = rv_tabname e_gotstate = lv_gotstate ).
+      CATCH cx_uj_gen_ddic_error.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+    IF lv_gotstate <> uj00_cs_gotstate-active OR rv_tabname IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD split_csv_records.
+* A line belongs to the previous one while that record has an odd number
+* of double quotes, i.e. a quoted field is still open.
+    DATA lv_record TYPE string.
+    DATA lv_quotes TYPE i.
+    DATA lv_open TYPE abap_bool.
+    DATA(lv_cr) = substring( val = cl_abap_char_utilities=>cr_lf len = 1 ).
+    SPLIT iv_csv AT cl_abap_char_utilities=>newline INTO TABLE DATA(lt_lines).
+    LOOP AT lt_lines INTO DATA(lv_line).
+      IF lv_open = abap_true.
+        lv_record = lv_record && cl_abap_char_utilities=>newline && lv_line.
+      ELSE.
+        lv_record = lv_line.
+      ENDIF.
+      lv_quotes = lv_quotes + count( val = lv_line sub = '"' ).
+      lv_open = boolc( lv_quotes MOD 2 = 1 ).
+      IF lv_open = abap_true.
+        CONTINUE.
+      ENDIF.
+      IF lv_record CP |*{ lv_cr }|.
+        lv_record = substring( val = lv_record len = strlen( lv_record ) - 1 ).
+      ENDIF.
+      IF strlen( condense( lv_record ) ) > 0.
+        APPEND lv_record TO rt_records.
+      ENDIF.
+      CLEAR: lv_record, lv_quotes.
+    ENDLOOP.
+    IF strlen( condense( lv_record ) ) > 0.
+      APPEND lv_record TO rt_records.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD add_import_message.
+    IF lines( ct_messages ) >= c_max_import_messages.
+      RETURN.
+    ENDIF.
+    READ TABLE ct_messages TRANSPORTING NO FIELDS WITH KEY table_line = iv_text.
+    IF sy-subrc <> 0.
+      APPEND iv_text TO ct_messages.
+    ENDIF.
+  ENDMETHOD.
+
+
+  METHOD import_comments.
+* Parse the CSV into BPC comments and add them through the comment manager,
+* which checks the comment tasks, member write access and work status per
+* comment. Blank dimension members leave the comment on a partial
+* intersection. Comments whose intersection, author and text already exist
+* (in the model or earlier in the file) are skipped.
+    TYPES: BEGIN OF ty_dim_col,
+             dimension TYPE uj_dim_name,
+             index TYPE i,
+           END OF ty_dim_col.
+    TYPES: BEGIN OF ty_group,
+             signature TYPE string,
+             comments TYPE ujc_t_compact_cmtbl,
+           END OF ty_group.
+    DATA lt_dim_cols TYPE SORTED TABLE OF ty_dim_col WITH UNIQUE KEY dimension.
+    DATA lt_groups TYPE HASHED TABLE OF ty_group WITH UNIQUE KEY signature.
+    DATA lt_keys TYPE HASHED TABLE OF string WITH UNIQUE KEY table_line.
+    DATA lt_header TYPE string_table.
+    DATA lt_fields TYPE string_table.
+    DATA lt_errors TYPE ujc_t_compact_cmtbl.
+    DATA lt_message TYPE uj0_t_message.
+    DATA ls_message TYPE uj0_s_message.
+    DATA ls_comment TYPE ujc_s_compact_cmtbl.
+    DATA lv_comment_col TYPE i.
+    DATA lv_user_col TYPE i.
+    DATA lv_date_col TYPE i.
+    DATA lv_keyword_col TYPE i.
+    DATA lv_priority_col TYPE i.
+    DATA lv_row TYPE i.
+    DATA lv_value TYPE string.
+    DATA lv_key TYPE string.
+    DATA lv_signature TYPE string.
+    DATA lv_author TYPE string.
+    DATA lv_error TYPE string.
+    DATA lv_text TYPE string.
+    DATA lr_rows TYPE REF TO data.
+    DATA lo_manager TYPE REF TO cl_ujc_cmtmanager.
+    DATA lx_comment TYPE REF TO cx_ujc_exception.
+    FIELD-SYMBOLS <lt_rows> TYPE STANDARD TABLE.
+    FIELD-SYMBOLS <ls_row> TYPE any.
+    FIELD-SYMBOLS <lv_val> TYPE any.
+    FIELD-SYMBOLS <ls_group> TYPE ty_group.
+    FIELD-SYMBOLS <ls_error> TYPE ujc_s_compact_cmtbl.
+
+    DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
+    IF lt_dimensions IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+* The comment manager reads the current BPC context in its constructor.
+    DATA(ls_user) = VALUE uj0_s_user( user_id = sy-uname langu = sy-langu ).
+    TRY.
+        cl_uj_context=>set_cur_context( i_appset_id = iv_environment is_user = ls_user
+                                        i_appl_id = iv_model ).
+      CATCH cx_root.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+
+* Header: every model dimension and SCOMMENT; USER_ID, DATEWRITTEN, KEYWORD
+* and PRIORITY are optional.
+    DATA(lt_records) = split_csv_records( iv_csv ).
+    IF lt_records IS INITIAL.
+      RETURN.
+    ENDIF.
+    READ TABLE lt_records INTO DATA(lv_header) INDEX 1.
+    lt_header = parse_csv_line( lv_header ).
+    LOOP AT lt_header INTO lv_value.
+      DATA(lv_col) = sy-tabix.
+      DATA(lv_name) = to_upper( condense( lv_value ) ).
+      CASE lv_name.
+        WHEN 'SCOMMENT'.
+          lv_comment_col = lv_col.
+        WHEN 'USER_ID'.
+          lv_user_col = lv_col.
+        WHEN 'DATEWRITTEN'.
+          lv_date_col = lv_col.
+        WHEN 'KEYWORD'.
+          lv_keyword_col = lv_col.
+        WHEN 'PRIORITY'.
+          lv_priority_col = lv_col.
+        WHEN OTHERS.
+          READ TABLE lt_dimensions TRANSPORTING NO FIELDS WITH KEY id = lv_name.
+          IF sy-subrc = 0.
+            INSERT VALUE #( dimension = lv_name index = lv_col ) INTO TABLE lt_dim_cols.
+          ELSE.
+            add_import_message( EXPORTING iv_text = |Unknown column { lv_name }|
+                                CHANGING ct_messages = rs_result-messages ).
+          ENDIF.
+      ENDCASE.
+    ENDLOOP.
+    LOOP AT lt_dimensions INTO DATA(ls_dim).
+      READ TABLE lt_dim_cols TRANSPORTING NO FIELDS WITH TABLE KEY dimension = ls_dim-id.
+      IF sy-subrc <> 0.
+        add_import_message( EXPORTING iv_text = |Missing column { ls_dim-id }|
+                            CHANGING ct_messages = rs_result-messages ).
+      ENDIF.
+    ENDLOOP.
+    IF lv_comment_col = 0.
+      add_import_message( EXPORTING iv_text = `Missing column SCOMMENT`
+                          CHANGING ct_messages = rs_result-messages ).
+    ENDIF.
+    rs_result-submitted = lines( lt_records ) - 1.
+    IF rs_result-messages IS NOT INITIAL.
+      rs_result-failed = rs_result-submitted.
+      RETURN.
+    ENDIF.
+
+* Keys of the comments already stored: members of the intersection (in
+* dimension order), author and text.
+    DATA(lv_tabname) = comment_table_name( iv_environment = iv_environment iv_model = iv_model ).
+    CREATE DATA lr_rows TYPE STANDARD TABLE OF (lv_tabname).
+    ASSIGN lr_rows->* TO <lt_rows>.
+    SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>.
+    LOOP AT <lt_rows> ASSIGNING <ls_row>.
+      CLEAR lv_key.
+      LOOP AT lt_dim_cols INTO DATA(ls_dim_col).
+        ASSIGN COMPONENT ls_dim_col-dimension OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0 AND <lv_val> IS NOT INITIAL.
+          lv_key = |{ lv_key }{ ls_dim_col-dimension }={ <lv_val> };|.
+        ENDIF.
+      ENDLOOP.
+      ASSIGN COMPONENT 'USER_ID' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        lv_key = |{ lv_key }\|{ <lv_val> }|.
+      ENDIF.
+      ASSIGN COMPONENT 'SCOMMENT' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        lv_key = |{ lv_key }\|{ <lv_val> }|.
+      ENDIF.
+      INSERT lv_key INTO TABLE lt_keys.
+    ENDLOOP.
+    FREE <lt_rows>.
+
+* Rows become comments, grouped by the set of dimensions they name: the
+* manager builds its work status check from the first comment of a call.
+    LOOP AT lt_records INTO DATA(lv_record) FROM 2.
+      lv_row = sy-tabix - 1.
+      lt_fields = parse_csv_line( lv_record ).
+      CLEAR: ls_comment, lv_key, lv_signature, lv_error.
+      LOOP AT lt_dim_cols INTO ls_dim_col.
+        CLEAR lv_value.
+        READ TABLE lt_fields INTO lv_value INDEX ls_dim_col-index.
+        lv_value = to_upper( condense( lv_value ) ).
+        IF lv_value IS NOT INITIAL.
+          APPEND VALUE #( dim_name = ls_dim_col-dimension dim_value = lv_value ) TO ls_comment-dim_list.
+          lv_signature = |{ lv_signature }{ ls_dim_col-dimension };|.
+          lv_key = |{ lv_key }{ ls_dim_col-dimension }={ lv_value };|.
+        ENDIF.
+      ENDLOOP.
+      IF ls_comment-dim_list IS INITIAL.
+        lv_error = `no dimension members`.
+      ENDIF.
+      READ TABLE lt_fields INTO ls_comment-scomment INDEX lv_comment_col.
+      IF strlen( condense( ls_comment-scomment ) ) = 0.
+        lv_error = `empty comment`.
+      ENDIF.
+      IF lv_keyword_col > 0.
+        CLEAR lv_value.
+        READ TABLE lt_fields INTO lv_value INDEX lv_keyword_col.
+        ls_comment-keyword = condense( lv_value ).
+      ENDIF.
+      IF lv_priority_col > 0.
+        CLEAR lv_value.
+        READ TABLE lt_fields INTO lv_value INDEX lv_priority_col.
+        CONDENSE lv_value NO-GAPS.
+        IF lv_value IS NOT INITIAL.
+          IF lv_value CO '0123456789' AND strlen( lv_value ) <= 9.
+            ls_comment-priority = lv_value.
+          ELSE.
+            lv_error = `invalid PRIORITY`.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+      IF iv_keep_author = abap_true.
+* Blank author or date falls back to the importing user and time.
+        CLEAR lv_value.
+        IF lv_user_col > 0.
+          READ TABLE lt_fields INTO lv_value INDEX lv_user_col.
+        ENDIF.
+        ls_comment-user_id = to_upper( condense( lv_value ) ).
+        IF ls_comment-user_id IS INITIAL.
+          ls_comment-user_id = sy-uname.
+        ENDIF.
+        CLEAR lv_value.
+        IF lv_date_col > 0.
+          READ TABLE lt_fields INTO lv_value INDEX lv_date_col.
+          CONDENSE lv_value NO-GAPS.
+        ENDIF.
+        IF lv_value IS INITIAL.
+          GET TIME STAMP FIELD ls_comment-datewritten.
+        ELSEIF lv_value CO '0123456789' AND strlen( lv_value ) <= 15.
+          ls_comment-datewritten = lv_value.
+        ELSE.
+          lv_error = `invalid DATEWRITTEN`.
+        ENDIF.
+        lv_author = ls_comment-user_id.
+      ELSE.
+        lv_author = sy-uname.
+      ENDIF.
+      IF lv_error IS NOT INITIAL.
+        rs_result-failed = rs_result-failed + 1.
+        add_import_message( EXPORTING iv_text = |Row { lv_row }: { lv_error }|
+                            CHANGING ct_messages = rs_result-messages ).
+        CONTINUE.
+      ENDIF.
+      lv_key = |{ lv_key }\|{ lv_author }\|{ ls_comment-scomment }|.
+      INSERT lv_key INTO TABLE lt_keys.
+      IF sy-subrc <> 0.
+        rs_result-skipped = rs_result-skipped + 1.
+        CONTINUE.
+      ENDIF.
+* The manager matches rejected comments by record id; the DAO assigns the stored id.
+      ls_comment-recordid = condense( |{ lv_row }| ).
+      READ TABLE lt_groups ASSIGNING <ls_group> WITH TABLE KEY signature = lv_signature.
+      IF sy-subrc <> 0.
+        INSERT VALUE #( signature = lv_signature ) INTO TABLE lt_groups ASSIGNING <ls_group>.
+      ENDIF.
+      APPEND ls_comment TO <ls_group>-comments.
+    ENDLOOP.
+
+* IF_TIME_USER stamps the context user and the current time.
+    DATA lv_time_user TYPE uj_flg.
+    lv_time_user = boolc( iv_keep_author = abap_false ).
+    LOOP AT lt_groups ASSIGNING <ls_group>.
+      CLEAR: lt_errors, lt_message.
+      TRY.
+* A fresh manager per group: its work status check keeps state between calls.
+          CREATE OBJECT lo_manager
+            EXPORTING i_appset_id = iv_environment i_appl_id = iv_model.
+          lo_manager->add_cmt(
+            EXPORTING it_compact_cmtbl = <ls_group>-comments
+                      if_time_user = lv_time_user
+                      if_check_workstatus = abap_true
+            IMPORTING et_error_cmtbl = lt_errors
+            CHANGING ct_message = lt_message ).
+        CATCH cx_ujc_exception INTO lx_comment.
+          ROLLBACK WORK.
+          rs_result-failed = rs_result-failed + lines( <ls_group>-comments ).
+          add_import_message( EXPORTING iv_text = lx_comment->get_text( )
+                              CHANGING ct_messages = rs_result-messages ).
+          CONTINUE.
+      ENDTRY.
+      rs_result-failed = rs_result-failed + lines( lt_errors ).
+      rs_result-success = rs_result-success + lines( <ls_group>-comments ) - lines( lt_errors ).
+      LOOP AT lt_errors ASSIGNING <ls_error>.
+        add_import_message(
+          EXPORTING iv_text = |Row { condense( <ls_error>-recordid ) }: no write access to a member, or locked by work status|
+          CHANGING ct_messages = rs_result-messages ).
+      ENDLOOP.
+      LOOP AT lt_message INTO ls_message.
+        lv_text = ls_message-message.
+        IF lv_text IS INITIAL AND ls_message-msgid IS NOT INITIAL.
+          MESSAGE ID ls_message-msgid TYPE 'I' NUMBER ls_message-msgno
+            WITH ls_message-msgv1 ls_message-msgv2 ls_message-msgv3 ls_message-msgv4
+            INTO lv_text.
+        ENDIF.
+        IF lv_text IS NOT INITIAL.
+          add_import_message( EXPORTING iv_text = lv_text CHANGING ct_messages = rs_result-messages ).
+        ENDIF.
+      ENDLOOP.
+* ADD_CMT leaves the commit to its caller.
+      IF lines( <ls_group>-comments ) > lines( lt_errors ).
+        COMMIT WORK AND WAIT.
+      ENDIF.
+    ENDLOOP.
   ENDMETHOD.
 
 ENDCLASS.
