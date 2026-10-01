@@ -1551,11 +1551,10 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     FIELD-SYMBOLS <lt_rows> TYPE STANDARD TABLE.
     ASSIGN lr_data->* TO <lt_rows>.
     IF lt_where IS INITIAL.
-      SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>
-        CLIENT SPECIFIED WHERE mandt = sy-mandt.
+      SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>.
     ELSE.
       SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>
-        CLIENT SPECIFIED WHERE mandt = sy-mandt AND (lt_where).
+        WHERE (lt_where).
     ENDIF.
     FIELD-SYMBOLS <ls_row> TYPE any.
     FIELD-SYMBOLS <lv_val> TYPE any.
