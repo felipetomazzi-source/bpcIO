@@ -1126,9 +1126,16 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
         lv_props = lv_props && lv_psep && quote( ls_prop-id ) && `:` && quote( ls_prop-value ).
         lv_psep = ','.
       ENDLOOP.
+      DATA lv_parents TYPE string.
+      CLEAR: lv_parents, lv_psep.
+      LOOP AT ls_member-parents INTO DATA(ls_parent).
+        lv_parents = lv_parents && lv_psep && quote( ls_parent-id ) && `:` && quote( ls_parent-value ).
+        lv_psep = ','.
+      ENDLOOP.
       lv_json = lv_json && lv_separator && `{"id":` && quote( ls_member-id ) &&
         `,"description":` && quote( ls_member-description ) &&
-        `,"properties":{` && lv_props && `}}`.
+        `,"properties":{` && lv_props && `}` &&
+        `,"parents":{` && lv_parents && `}}`.
       lv_separator = ','.
     ENDLOOP.
     respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).

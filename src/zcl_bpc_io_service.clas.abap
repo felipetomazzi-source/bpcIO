@@ -97,6 +97,8 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
              id TYPE uj_dim_member,
              description TYPE uj_desc,
              properties TYPE ty_properties,
+             "! Parent per hierarchy (id = hierarchy, e.g. PARENTH1); none for a root.
+             parents TYPE ty_properties,
            END OF ty_member,
            ty_members TYPE STANDARD TABLE OF ty_member WITH DEFAULT KEY.
     TYPES: BEGIN OF ty_filter,
@@ -1087,14 +1089,30 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       CATCH cx_root.
         CLEAR lt_attr.
     ENDTRY.
+* Each hierarchy (PARENTH1, PARENTH2, ...) adds a column with the member's parent.
+    DATA lt_hier TYPE uja_t_hier.
+    DATA lt_hier_name TYPE uja_t_hier_name.
+    IF lo_dim->has_hier( ) = abap_true.
+      TRY.
+          lo_dim->get_hier_list( IMPORTING et_hier_info = lt_hier ).
+        CATCH cx_uja_admin_error.
+          CLEAR lt_hier.
+      ENDTRY.
+    ENDIF.
+    LOOP AT lt_hier INTO DATA(ls_hier).
+      APPEND ls_hier-hier_name TO lt_hier_name.
+    ENDLOOP.
     DATA lt_attr_name TYPE uja_t_attr_name.
     LOOP AT lt_attr INTO DATA(ls_attr).
-      APPEND ls_attr-attribute_name TO lt_attr_name.
+      READ TABLE lt_hier_name TRANSPORTING NO FIELDS WITH KEY table_line = ls_attr-attribute_name.
+      IF sy-subrc <> 0.
+        APPEND ls_attr-attribute_name TO lt_attr_name.
+      ENDIF.
     ENDLOOP.
     DATA lr_data TYPE REF TO data.
     TRY.
         lo_dim->read_mbr_data(
-          EXPORTING it_attr_list = lt_attr_name if_inc_txt = abap_true
+          EXPORTING it_attr_list = lt_attr_name it_hier_list = lt_hier_name if_inc_txt = abap_true
           IMPORTING er_data = lr_data ).
       CATCH cx_uja_admin_error.
         RAISE EXCEPTION TYPE cx_uj_static_check.
@@ -1148,6 +1166,12 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
         ASSIGN COMPONENT lv_attr_name OF STRUCTURE <ls_row> TO <lv_val>.
         IF sy-subrc = 0 AND <lv_val> IS NOT INITIAL.
           APPEND VALUE #( id = lv_attr_name value = |{ <lv_val> }| ) TO ls_member-properties.
+        ENDIF.
+      ENDLOOP.
+      LOOP AT lt_hier_name INTO DATA(lv_hier_name).
+        ASSIGN COMPONENT lv_hier_name OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0 AND <lv_val> IS NOT INITIAL.
+          APPEND VALUE #( id = lv_hier_name value = |{ <lv_val> }| ) TO ls_member-parents.
         ENDIF.
       ENDLOOP.
       IF ls_member-id IS NOT INITIAL.
