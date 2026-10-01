@@ -236,6 +236,14 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 it_filters TYPE ty_filters
       RETURNING VALUE(rv_csv) TYPE string
       RAISING cx_uj_static_check.
+    "! Reads the model's comment table (the BPC comment store) and returns
+    "! the rows that match the given dimension filters as CSV.
+    "! Columns: all dimensions + SCOMMENT + USER_ID + DATEWRITTEN + KEYWORD + PRIORITY.
+    METHODS get_comments
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                it_filters TYPE ty_filters
+      RETURNING VALUE(rv_csv) TYPE string
+      RAISING cx_uj_static_check.
     "! Writes CSV fact records (one column per dimension plus SIGNEDDATA, the
     "! format export_data produces) into a model through the BPC write-back
     "! API. Each value overwrites the stored value at its intersection.
@@ -1465,6 +1473,133 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       lv_pos = lv_next.
     ENDWHILE.
     APPEND lv_field TO rt_fields.
+  ENDMETHOD.
+
+
+  METHOD get_comments.
+* Resolve the comment table name for this environment/model, then SELECT
+* all rows, optionally filtered by dimension members.
+    DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
+    IF lt_dimensions IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+* Get the prefix pair (appset + appl) needed by CL_UJ_GEN_TABLE.
+    DATA ls_prefix TYPE uja_s_prefix.
+    SELECT SINGLE appset_prefix INTO ls_prefix-appset_prefix
+      FROM uja_appset_info WHERE appset_id = iv_environment.
+    IF sy-subrc <> 0.
+      RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDIF.
+    DATA(lo_app_mgr) = cl_uja_bpc_admin_factory=>get_application_manager(
+      i_appset_id = iv_environment i_application_id = iv_model ).
+    DATA ls_app TYPE uja_s_application.
+    TRY.
+        lo_app_mgr->get( IMPORTING es_application = ls_app ).
+      CATCH cx_uja_admin_error cx_uj_no_auth cx_uj_static_check.
+        RAISE EXCEPTION TYPE cx_uj_no_auth.
+    ENDTRY.
+    ls_prefix-appl_prefix = ls_app-appl_prefix.
+* Resolve the actual DDIC table name, e.g. /1CPMB/BSJY1CMT.
+    DATA lo_gentab TYPE REF TO cl_uj_gen_table.
+    cl_uj_gen_table=>get_instance( IMPORTING eo_instance = lo_gentab ).
+    DATA lv_tabname TYPE tabname.
+    DATA lv_gotstate TYPE ddgotstate.
+    TRY.
+        lo_gentab->get_ddic_table_name(
+          EXPORTING i_table = cl_uj_gen_table=>gc_table_comment is_prefix = ls_prefix
+          IMPORTING e_tabname = lv_tabname e_gotstate = lv_gotstate ).
+      CATCH cx_uj_gen_ddic_error.
+        RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDTRY.
+    IF lv_gotstate <> uj00_cs_gotstate-active OR lv_tabname IS INITIAL.
+      RAISE EXCEPTION TYPE cx_uj_static_check.
+    ENDIF.
+* Build a WHERE clause from the dimension filters (sign I, option EQ).
+    DATA lt_where TYPE STANDARD TABLE OF string WITH DEFAULT KEY.
+    DATA lv_clause TYPE string.
+    LOOP AT it_filters INTO DATA(ls_filter).
+      READ TABLE lt_dimensions TRANSPORTING NO FIELDS WITH KEY id = ls_filter-dimension.
+      IF sy-subrc <> 0.
+        CONTINUE.
+      ENDIF.
+      DATA lv_sub TYPE string.
+      CLEAR lv_sub.
+      LOOP AT ls_filter-members INTO DATA(lv_member).
+        IF lv_sub IS NOT INITIAL.
+          lv_sub = lv_sub && ` OR `.
+        ENDIF.
+        lv_sub = lv_sub && ls_filter-dimension && ` = '` && lv_member && `'`.
+      ENDLOOP.
+      IF lv_sub IS NOT INITIAL.
+        lv_clause = `( ` && lv_sub && ` )`.
+        APPEND lv_clause TO lt_where.
+      ENDIF.
+    ENDLOOP.
+* CSV header: all dimensions, then the metadata and comment columns.
+    DATA lv_header TYPE string.
+    LOOP AT lt_dimensions INTO DATA(ls_dim).
+      IF lv_header IS NOT INITIAL.
+        lv_header = lv_header && ','.
+      ENDIF.
+      lv_header = lv_header && csv_field( |{ ls_dim-id }| ).
+    ENDLOOP.
+    lv_header = lv_header && ',SCOMMENT,USER_ID,DATEWRITTEN,KEYWORD,PRIORITY'.
+    rv_csv = lv_header.
+* Dynamic SELECT into a generic table.
+    DATA lr_data TYPE REF TO data.
+    CREATE DATA lr_data TYPE STANDARD TABLE OF (lv_tabname).
+    FIELD-SYMBOLS <lt_rows> TYPE STANDARD TABLE.
+    ASSIGN lr_data->* TO <lt_rows>.
+    IF lt_where IS INITIAL.
+      SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>
+        CLIENT SPECIFIED WHERE mandt = sy-mandt.
+    ELSE.
+      SELECT * FROM (lv_tabname) INTO TABLE <lt_rows>
+        CLIENT SPECIFIED WHERE mandt = sy-mandt AND (lt_where).
+    ENDIF.
+    FIELD-SYMBOLS <ls_row> TYPE any.
+    FIELD-SYMBOLS <lv_val> TYPE any.
+    DATA lv_line TYPE string.
+    DATA lv_ts TYPE string.
+    LOOP AT <lt_rows> ASSIGNING <ls_row>.
+      CLEAR lv_line.
+      LOOP AT lt_dimensions INTO ls_dim.
+        IF lv_line IS NOT INITIAL.
+          lv_line = lv_line && ','.
+        ENDIF.
+        ASSIGN COMPONENT ls_dim-id OF STRUCTURE <ls_row> TO <lv_val>.
+        IF sy-subrc = 0.
+          lv_line = lv_line && csv_field( |{ <lv_val> }| ).
+        ENDIF.
+      ENDLOOP.
+* SCOMMENT
+      ASSIGN COMPONENT 'SCOMMENT' OF STRUCTURE <ls_row> TO <lv_val>.
+      lv_line = lv_line && ',' && csv_field( COND #( WHEN sy-subrc = 0 THEN |{ <lv_val> }| ) ).
+* USER_ID
+      ASSIGN COMPONENT 'USER_ID' OF STRUCTURE <ls_row> TO <lv_val>.
+      lv_line = lv_line && ',' && csv_field( COND #( WHEN sy-subrc = 0 THEN |{ <lv_val> }| ) ).
+* DATEWRITTEN (timestamp -> ISO string)
+      ASSIGN COMPONENT 'DATEWRITTEN' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        lv_ts = |{ <lv_val> }|.
+        CONDENSE lv_ts NO-GAPS.
+        lv_line = lv_line && ',' && csv_field( lv_ts ).
+      ELSE.
+        lv_line = lv_line && ','.
+      ENDIF.
+* KEYWORD
+      ASSIGN COMPONENT 'KEYWORD' OF STRUCTURE <ls_row> TO <lv_val>.
+      lv_line = lv_line && ',' && csv_field( COND #( WHEN sy-subrc = 0 THEN |{ <lv_val> }| ) ).
+* PRIORITY
+      ASSIGN COMPONENT 'PRIORITY' OF STRUCTURE <ls_row> TO <lv_val>.
+      IF sy-subrc = 0.
+        lv_line = lv_line && ',' && condense( |{ <lv_val> }| ).
+      ELSE.
+        lv_line = lv_line && ','.
+      ENDIF.
+      rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf && lv_line.
+    ENDLOOP.
+    rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
   ENDMETHOD.
 
 ENDCLASS.

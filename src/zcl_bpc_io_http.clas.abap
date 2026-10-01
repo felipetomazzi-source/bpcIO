@@ -28,6 +28,7 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
         members          TYPE string VALUE '/members',
         data_export      TYPE string VALUE '/data/export',
         data_import      TYPE string VALUE '/data/import',
+        data_comments    TYPE string VALUE '/data/comments',
       END OF c_resource.
     CONSTANTS:
       BEGIN OF c_method,
@@ -146,6 +147,10 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     METHODS handle_import_data
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
+    "! Reads the model's comment table, filtered by dimension selections.
+    METHODS handle_comments
+      IMPORTING io_service TYPE REF TO zcl_bpc_io_service
+      RAISING cx_uj_static_check.
     "! Reads and validates the dimension id form field.
     METHODS read_dimension
       RETURNING VALUE(rv_dimension) TYPE uj_dim_name.
@@ -260,6 +265,10 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
             IF require_method( c_method-post ).
               handle_import_data( lo_service ).
             ENDIF.
+          WHEN c_resource-data_comments.
+            IF require_method( c_method-get ).
+              handle_comments( lo_service ).
+            ENDIF.
           WHEN OTHERS.
             respond_error( iv_code = 404 iv_reason = 'Not Found'
                            iv_message = 'Unknown resource' ).
@@ -287,6 +296,8 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
                                THEN 'Cannot read BPC data'
                                WHEN lv_path = c_resource-data_import
                                THEN 'Cannot write BPC data'
+                               WHEN lv_path = c_resource-data_comments
+                               THEN 'Cannot read BPC comments'
                                ELSE 'Cannot load BPC metadata' ) ).
     ENDTRY.
   ENDMETHOD.
@@ -1215,6 +1226,54 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
                        `,"success":` && |{ ls_result-success }| &&
                        `,"failed":` && |{ ls_result-failed }| &&
                        `,"messages":[` && lv_messages && `]}` ).
+  ENDMETHOD.
+
+
+  METHOD handle_comments.
+    DATA(lv_environment_id) = read_environment( ).
+    IF lv_environment_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_model_id) = read_model( ).
+    IF lv_model_id IS INITIAL.
+      RETURN.
+    ENDIF.
+    DATA(lv_count) = mo_server->request->get_form_field( 'filterCount' ).
+    DATA lv_number TYPE i.
+    IF lv_count IS NOT INITIAL.
+      IF strlen( lv_count ) > 4 OR NOT lv_count CO '0123456789'.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+                       iv_message = 'A valid filter count is required' ).
+        RETURN.
+      ENDIF.
+      lv_number = lv_count.
+    ENDIF.
+    DATA lt_filters TYPE zcl_bpc_io_service=>ty_filters.
+    DATA lv_index TYPE i.
+    DO lv_number TIMES.
+      lv_index = sy-index.
+      DATA(lv_dim) = to_upper( mo_server->request->get_form_field( |filterDimension{ lv_index }| ) ).
+      DATA(lv_members) = mo_server->request->get_form_field( |filterMembers{ lv_index }| ).
+      IF lv_dim IS INITIAL.
+        CONTINUE.
+      ENDIF.
+      DATA ls_filter TYPE zcl_bpc_io_service=>ty_filter.
+      CLEAR ls_filter.
+      ls_filter-dimension = lv_dim.
+      SPLIT lv_members AT ',' INTO TABLE DATA(lt_member_ids).
+      LOOP AT lt_member_ids INTO DATA(lv_member_id).
+        IF lv_member_id IS NOT INITIAL.
+          APPEND CONV uj_dim_member( to_upper( lv_member_id ) ) TO ls_filter-members.
+        ENDIF.
+      ENDLOOP.
+      IF ls_filter-members IS NOT INITIAL.
+        APPEND ls_filter TO lt_filters.
+      ENDIF.
+    ENDDO.
+    DATA(lv_csv) = io_service->get_comments(
+      iv_environment = lv_environment_id iv_model = lv_model_id it_filters = lt_filters ).
+    respond( iv_code = 200 iv_reason = 'OK'
+             iv_json = `{"csv":` && quote( lv_csv ) && `}` ).
   ENDMETHOD.
 
 ENDCLASS.
