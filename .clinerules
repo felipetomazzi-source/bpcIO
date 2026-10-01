@@ -1,0 +1,9 @@
+# Response Style
+- Be extremely concise, brief, and direct.
+- Do not explain code changes unless specifically asked.
+- Avoid polite preambles, summaries, or post-change explanations (e.g., do not say "I have updated the file...").
+- Output code snippets or execution commands immediately without conversational filler.
+
+# Task Execution
+- Focus on executing the task efficiently with the fewest tool calls possible.
+- If a task is successful, simply state "Done." or output the final result.

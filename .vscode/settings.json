@@ -1,0 +1,18 @@
+{
+    "abapfs.remote": {
+        "NPL": {
+            "url": "http://vhcalnplci:8000/",
+            "username": "developer",
+            "password": "",
+            "client": "001",
+            "language": "en",
+            "allowSelfSigned": false,
+            "diff_formatter": "ADT formatter",
+            "maxDebugThreads": 4,
+            "sapGui": {
+                "disabled": false,
+                "guiType": "WEBGUI_UNSAFE_EMBEDDED"
+            }
+        }
+    }
+}
