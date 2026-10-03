@@ -4,11 +4,12 @@ A SAP BPC workspace with tile navigation to independent tools. **Transport** pro
 
 ## Workspace navigation
 
-The BPCIO home page has three tiles:
+The BPCIO home page has four tiles:
 
 - **Transport** opens the existing object, data and comment tools inside BPCIO. Its environment list loads when the tool is first opened; its back button returns to the workspace.
 - **BPC Git** navigates in the same browser tab to the separately installed BSP application at `/sap/bc/ui5_ui5/sap/zbpc_git/index.html`, preserving `sap-client`. Browser Back returns to BPCIO. Git retains its own environment selection and authorization.
 - **License Audit** opens a dedicated audit module with a start-date picker, Professional/Standard count tiles and user drill-down. It covers all environments in the current SAP client and does not require choosing a Transport environment.
+- **Data Preview** lets you select an environment/model and dimension members, then displays stored transaction data in a web table. It uses the same member dropdowns and hierarchy selector as Export Data; empty filters include all members and parent selections expand to base members. The table shows every dimension plus `SIGNEDDATA`, with horizontal scrolling and 50-row display batches. Preview reads one bounded BPC query package, displays at most 1,000 rows and flags partial results. Narrow filters to inspect more specific data; Export Data remains available for a full extract. Preview respects BPC read security and does not change data.
 
 BPC Git must be installed and activated separately. The destination path is configured in `manifest.json` under `sap.ui5.config.bpcGitUrl` (an application path without query parameters). The hub does not load Git code or call its API. ASL is outside this release.
 
@@ -157,6 +158,8 @@ Data and comment requests take `environment` and `model`, plus:
 - **Comment import:** `csv` and `keepAuthor` (`X` keeps `USER_ID` / `DATEWRITTEN`). Response: `{ "submitted": n, "success": n, "skipped": n, "failed": n, "messages": [...] }`.
 
 Exports respond with `{ "csv": "..." }`.
+
+`POST /data/export` also accepts `preview=X`, which uses a bounded 1,001-record query package and returns `{ "csv": "...", "truncated": true|false }`. The extra row detects truncation; the browser displays up to 1,000 rows. Preview shares the existing environment/model and dimension-filter validation. Changing the model, environment or filters hides stale results until Preview data is pressed again. Regression checks: `node --test tests/data_preview_ui.test.cjs`.
 
 License audit returns `{ "client": "001", "startDate": "20260101", "endDate": "20261003", "professional": 0, "standard": 0, "inactiveProfessional": 0, "inactiveStandard": 0, "users": [...] }`. Each user includes `userId`, `license`, `accountStatus`, `source`, `activity`, `activityDate`, `activityTime`, `environment`, `lastAccessDate` and `lastAccessTime`. Dates use `YYYYMMDD`; timestamps are UTC numeric strings, with zero indicating no recorded timestamp. Invalid or future start dates return 400; missing report authorization returns 403. The endpoint is read-only and its response is not cached.
 

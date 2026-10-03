@@ -1236,6 +1236,15 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
         APPEND ls_filter TO lt_filters.
       ENDIF.
     ENDDO.
+    DATA(lv_preview) = mo_server->request->get_form_field( 'preview' ).
+    IF lv_preview = 'X'.
+      DATA(ls_preview) = io_service->preview_data(
+        iv_environment = lv_environment_id iv_model = lv_model_id it_filters = lt_filters ).
+      respond( iv_code = 200 iv_reason = 'OK'
+        iv_json = `{"csv":` && quote( ls_preview-csv ) && `,"truncated":` &&
+          COND string( WHEN ls_preview-truncated = abap_true THEN 'true' ELSE 'false' ) && `}` ).
+      RETURN.
+    ENDIF.
     DATA(lv_csv) = io_service->export_data(
       iv_environment = lv_environment_id iv_model = lv_model_id it_filters = lt_filters ).
     respond( iv_code = 200 iv_reason = 'OK'

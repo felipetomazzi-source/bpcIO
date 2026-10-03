@@ -238,6 +238,14 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
                 iv_dimension TYPE uj_dim_name
       RETURNING VALUE(rt_members) TYPE ty_members
       RAISING cx_uj_static_check.
+    TYPES: BEGIN OF ty_data_preview,
+             csv TYPE string,
+             truncated TYPE abap_bool,
+           END OF ty_data_preview.
+    METHODS preview_data
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id it_filters TYPE ty_filters
+      RETURNING VALUE(rs_data) TYPE ty_data_preview
+      RAISING cx_uj_static_check.
     "! Reads the fact data of a model for the given member filters and
     "! returns it as CSV (one column per dimension plus SIGNEDDATA).
     METHODS export_data
@@ -272,6 +280,11 @@ CLASS zcl_bpc_io_service DEFINITION PUBLIC FINAL CREATE PUBLIC.
       RAISING cx_uj_static_check.
 
   PRIVATE SECTION.
+    METHODS read_data
+      IMPORTING iv_environment TYPE uj_appset_id iv_model TYPE uj_appl_id
+                it_filters TYPE ty_filters iv_max_rows TYPE i DEFAULT 0
+      RETURNING VALUE(rs_data) TYPE ty_data_preview
+      RAISING cx_uj_static_check.
     METHODS csv_field IMPORTING iv_value TYPE string RETURNING VALUE(rv_field) TYPE string.
     "! Splits one CSV line into its fields (double-quoted fields may hold commas).
     METHODS parse_csv_line IMPORTING iv_line TYPE string RETURNING VALUE(rt_fields) TYPE string_table.
@@ -1183,6 +1196,15 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
   ENDMETHOD.
 
   METHOD export_data.
+    DATA(ls_data) = read_data( iv_environment = iv_environment iv_model = iv_model it_filters = it_filters ).
+    rv_csv = ls_data-csv.
+  ENDMETHOD.
+
+  METHOD preview_data.
+    rs_data = read_data( iv_environment = iv_environment iv_model = iv_model it_filters = it_filters iv_max_rows = 1001 ).
+  ENDMETHOD.
+
+  METHOD read_data.
 * Read the model's dimensions to shape the query and the CSV columns,
 * build the member selections, run the flat RSDRI query and format CSV.
     DATA(lt_dimensions) = get_dimensions( iv_environment = iv_environment iv_model = iv_model ).
@@ -1234,11 +1256,19 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     DATA lt_message TYPE uj0_t_message.
     DATA lf_eod TYPE rs_bool.
     TRY.
+        IF iv_max_rows > 0.
+          lo_query->run_rsdri_query(
+            EXPORTING it_dim_name = lt_dim_name it_range = lt_sel
+                      if_check_security = abap_true i_packagesize = iv_max_rows
+            IMPORTING et_data = <lt_result> e_end_of_data = lf_eod et_message = lt_message ).
+          rs_data-truncated = xsdbool( lf_eod = abap_false OR lines( <lt_result> ) > 1000 ).
+        ELSE.
         lo_query->run_rsdri_query(
           EXPORTING it_dim_name = lt_dim_name it_range = lt_sel
                     if_check_security = abap_true
           IMPORTING et_data = <lt_result> e_end_of_data = lf_eod
                     et_message = lt_message ).
+        ENDIF.
       CATCH cx_ujo_read.
         RAISE EXCEPTION TYPE cx_uj_static_check.
     ENDTRY.
@@ -1251,14 +1281,17 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       lv_header = lv_header && csv_field( |{ ls_dim-id }| ).
     ENDLOOP.
     lv_header = lv_header && ',SIGNEDDATA'.
-    rv_csv = lv_header.
+    rs_data-csv = lv_header.
     IF <lt_result> IS NOT ASSIGNED.
-      rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
+      rs_data-csv = rs_data-csv && cl_abap_char_utilities=>cr_lf.
       RETURN.
     ENDIF.
     FIELD-SYMBOLS <ls_row> TYPE any.
     FIELD-SYMBOLS <lv_val> TYPE any.
     LOOP AT <lt_result> ASSIGNING <ls_row>.
+      IF iv_max_rows > 0 AND sy-tabix > iv_max_rows.
+        EXIT.
+      ENDIF.
       DATA lv_line TYPE string.
       CLEAR lv_line.
       LOOP AT lt_dimensions INTO ls_dim.
@@ -1276,9 +1309,9 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
       ELSE.
         lv_line = lv_line && ','.
       ENDIF.
-      rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf && lv_line.
+      rs_data-csv = rs_data-csv && cl_abap_char_utilities=>cr_lf && lv_line.
     ENDLOOP.
-    rv_csv = rv_csv && cl_abap_char_utilities=>cr_lf.
+    rs_data-csv = rs_data-csv && cl_abap_char_utilities=>cr_lf.
   ENDMETHOD.
 
   METHOD csv_field.

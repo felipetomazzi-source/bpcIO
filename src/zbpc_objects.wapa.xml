@@ -123,6 +123,17 @@
       <LANGU>E</LANGU>
      </ATTRIBUTES>
     </item>
+    <item>
+     <ATTRIBUTES>
+      <APPLNAME>ZBPC_OBJECTS</APPLNAME>
+      <PAGEKEY>MODEL/PREVIEW.JS</PAGEKEY>
+      <PAGENAME>model/Preview.js</PAGENAME>
+      <PAGETYPE>X</PAGETYPE>
+      <LAYOUTLANGU>E</LAYOUTLANGU>
+      <VERSION>A</VERSION>
+      <LANGU>E</LANGU>
+     </ATTRIBUTES>
+    </item>
    </PAGES>
   </asx:values>
  </asx:abap>
