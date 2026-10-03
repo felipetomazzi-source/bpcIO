@@ -1255,12 +1255,14 @@ CLASS zcl_bpc_io_service IMPLEMENTATION.
     ENDTRY.
     DATA lt_message TYPE uj0_t_message.
     DATA lf_eod TYPE rs_bool.
+    DATA lf_first_call TYPE rs_bool VALUE abap_true.
     TRY.
         IF iv_max_rows > 0.
           lo_query->run_rsdri_query(
             EXPORTING it_dim_name = lt_dim_name it_range = lt_sel
                       if_check_security = abap_true i_packagesize = iv_max_rows
-            IMPORTING et_data = <lt_result> e_end_of_data = lf_eod et_message = lt_message ).
+            IMPORTING et_data = <lt_result> e_end_of_data = lf_eod et_message = lt_message
+            CHANGING c_first_call = lf_first_call ).
           rs_data-truncated = xsdbool( lf_eod = abap_false OR lines( <lt_result> ) > 1000 ).
         ELSE.
         lo_query->run_rsdri_query(
