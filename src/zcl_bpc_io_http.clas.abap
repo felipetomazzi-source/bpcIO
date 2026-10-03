@@ -8,6 +8,7 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     CONSTANTS:
       BEGIN OF c_resource,
         environments    TYPE string VALUE '/environments',
+        license_audit   TYPE string VALUE '/licenses/audit',
         models          TYPE string VALUE '/models',
         scripts         TYPE string VALUE '/scripts',
         script          TYPE string VALUE '/script',
@@ -80,6 +81,8 @@ CLASS zcl_bpc_io_http DEFINITION PUBLIC FINAL CREATE PUBLIC.
     METHODS handle_environments
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
+    METHODS handle_license_audit
+      RAISING cx_uj_no_auth cx_uj_input_error.
     METHODS handle_models
       IMPORTING io_service TYPE REF TO zcl_bpc_io_service
       RAISING cx_uj_static_check.
@@ -186,6 +189,10 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
     TRY.
         DATA(lo_service) = NEW zcl_bpc_io_service( ).
         CASE lv_path.
+          WHEN c_resource-license_audit.
+            IF require_method( c_method-get ).
+              handle_license_audit( ).
+            ENDIF.
           WHEN c_resource-environments.
             IF require_method( c_method-get ).
               handle_environments( lo_service ).
@@ -311,6 +318,48 @@ CLASS zcl_bpc_io_http IMPLEMENTATION.
                                THEN 'Cannot write BPC comments'
                                ELSE 'Cannot load BPC metadata' ) ).
     ENDTRY.
+  ENDMETHOD.
+
+  METHOD handle_license_audit.
+    DATA(lv_start_text) = mo_server->request->get_form_field( 'startDate' ).
+    IF lv_start_text IS NOT INITIAL AND
+       ( strlen( lv_start_text ) <> 8 OR NOT lv_start_text CO '0123456789' ).
+      respond_error( iv_code = 400 iv_reason = 'Bad Request'
+        iv_message = 'Start date must be YYYYMMDD' ).
+      RETURN.
+    ENDIF.
+    DATA lv_start TYPE dats.
+    lv_start = lv_start_text.
+    IF lv_start_text IS NOT INITIAL.
+      CALL FUNCTION 'DATE_CHECK_PLAUSIBILITY'
+        EXPORTING date = lv_start
+        EXCEPTIONS plausibility_check_failed = 1 OTHERS = 2.
+      IF sy-subrc <> 0 OR lv_start > sy-datum OR lv_start IS INITIAL.
+        respond_error( iv_code = 400 iv_reason = 'Bad Request'
+          iv_message = 'Choose a valid start date no later than today' ).
+        RETURN.
+      ENDIF.
+    ENDIF.
+    DATA(ls_audit) = zcl_bpc_io_audit=>analyse( lv_start ).
+    DATA lv_json TYPE string.
+    DATA lv_separator TYPE string.
+    lv_json = `{"client":` && quote( ls_audit-client ) &&
+      `,"startDate":` && quote( ls_audit-start_date ) && `,"endDate":` && quote( ls_audit-end_date ) &&
+      `,"professional":` && |{ ls_audit-professional }| && `,"standard":` && |{ ls_audit-standard }| &&
+      `,"inactiveProfessional":` && |{ ls_audit-inactive_professional }| &&
+      `,"inactiveStandard":` && |{ ls_audit-inactive_standard }| && `,"users":[`.
+    LOOP AT ls_audit-users INTO DATA(ls_user).
+      lv_json = lv_json && lv_separator && `{"userId":` && quote( ls_user-user_id ) &&
+        `,"license":` && quote( ls_user-license ) && `,"accountStatus":` && quote( ls_user-account_status ) &&
+        `,"source":` && quote( ls_user-source ) && `,"activity":` && quote( ls_user-activity ) &&
+        `,"activityDate":` && quote( ls_user-activity_date ) &&
+        `,"activityTime":` && quote( |{ ls_user-activity_time NUMBER = RAW }| ) &&
+        `,"environment":` && quote( ls_user-environment ) &&
+        `,"lastAccessDate":` && quote( ls_user-last_access_date ) &&
+        `,"lastAccessTime":` && quote( |{ ls_user-last_access_time NUMBER = RAW }| ) && `}`.
+      lv_separator = ','.
+    ENDLOOP.
+    respond( iv_code = 200 iv_reason = 'OK' iv_json = lv_json && `]}` ).
   ENDMETHOD.
 
   METHOD handle_environments.

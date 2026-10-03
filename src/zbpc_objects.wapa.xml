@@ -101,6 +101,28 @@
       <LANGU>E</LANGU>
      </ATTRIBUTES>
     </item>
+    <item>
+     <ATTRIBUTES>
+      <APPLNAME>ZBPC_OBJECTS</APPLNAME>
+      <PAGEKEY>CONTROLLER/LICENSEAUDIT.CONTROLLER.JS</PAGEKEY>
+      <PAGENAME>controller/LicenseAudit.controller.js</PAGENAME>
+      <PAGETYPE>X</PAGETYPE>
+      <LAYOUTLANGU>E</LAYOUTLANGU>
+      <VERSION>A</VERSION>
+      <LANGU>E</LANGU>
+     </ATTRIBUTES>
+    </item>
+    <item>
+     <ATTRIBUTES>
+      <APPLNAME>ZBPC_OBJECTS</APPLNAME>
+      <PAGEKEY>VIEW/LICENSEAUDIT.VIEW.XML</PAGEKEY>
+      <PAGENAME>view/LicenseAudit.view.xml</PAGENAME>
+      <PAGETYPE>X</PAGETYPE>
+      <LAYOUTLANGU>E</LAYOUTLANGU>
+      <VERSION>A</VERSION>
+      <LANGU>E</LANGU>
+     </ATTRIBUTES>
+    </item>
    </PAGES>
   </asx:values>
  </asx:abap>

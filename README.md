@@ -4,12 +4,27 @@ A SAP BPC workspace with tile navigation to independent tools. **Transport** pro
 
 ## Workspace navigation
 
-The BPCIO home page has two tiles:
+The BPCIO home page has three tiles:
 
 - **Transport** opens the existing object, data and comment tools inside BPCIO. Its environment list loads when the tool is first opened; its back button returns to the workspace.
 - **BPC Git** navigates in the same browser tab to the separately installed BSP application at `/sap/bc/ui5_ui5/sap/zbpc_git/index.html`, preserving `sap-client`. Browser Back returns to BPCIO. Git retains its own environment selection and authorization.
+- **License Audit** opens a dedicated audit module with a start-date picker, Professional/Standard count tiles and user drill-down. It covers all environments in the current SAP client and does not require choosing a Transport environment.
 
 BPC Git must be installed and activated separately. The destination path is configured in `manifest.json` under `sap.ui5.config.bpcGitUrl` (an application path without query parameters). The hub does not load Git code or call its API. ASL is outside this release.
+
+### License audit
+
+The audit calls the same usage functions as SAP report `RSBPCA_NW_AUDIT`: `RSBPCA_GET_USAGE_UNIFIED` for Embedded and `UJ0_GET_USAGE_CLASSIC` for Classic, with `I_F_USAGE_DETAIL` enabled. Results are restricted to the current client and deduplicated by user; Professional takes precedence over Standard across both engines. A selected start date is inclusive and the end date is SAP's current date. Leaving the start date blank explicitly analyses the last 365 days.
+
+The initial totals show **active accounts**. Switch to **inactive accounts** to inspect the separately reported locked, expired or deleted users. SAP's active-account definition is currently unlocked and not expired; it is independent of whether an account had usage in the period. Counts represent SAP's measured usage, not a comparison with purchased license quantities.
+
+Select a count tile to filter the user table, then select a user to inspect the activity code, readable activity label, qualifying activity date, environment and audit source. Last recorded access is calculated separately from the qualifying activity using Classic/Embedded activity records, Classic logon records and Embedded planning usage. Timestamps are shown in UTC where available; date-only records remain date-only, and missing dates say **Not recorded**.
+
+SAP stores the first/latest dates for an activity rather than a full event history. The selected period and retained audit records therefore determine which activity can be shown. The drill-down shows the representative qualifying activity returned by SAP, not every action the user performed.
+
+Authorization matches the report: `S_RS_ADMWB`, `RSADMWBOBJ = Monitor`, `ACTVT = 03`. The backend is isolated in `ZCL_BPC_IO_AUDIT`; the UI uses its own `LicenseAudit` view/controller and loads when its hub tile is opened.
+
+After abapGit pull, activate the new audit class together with the HTTP handler and BSP application. Compare both active and inactive totals against `RSBPCA_NW_AUDIT` for the **same explicit start date and current client**, including a user present in both Classic and Embedded. Check a Professional user whose later access was Standard activity, an account with only a legacy logon date, an empty period, invalid/future dates and a user without BW monitor authorization. Local UI checks run with `node --test tests/license_audit_ui.test.cjs`; SAP runtime acceptance is required after installation.
 
 ## Supported objects
 
@@ -90,6 +105,7 @@ Base path: `/sap/bc/zbpc_io`
 | Method | Path | Purpose |
 | --- | --- | --- |
 | GET | `/environments` | List environments (AppSets) |
+| GET | `/licenses/audit?startDate=<YYYYMMDD>` | Current-client Professional/Standard usage and user evidence; blank start defaults to the last 365 days |
 | GET | `/models?environment=<appset>` | List models of an environment |
 | GET | `/scripts?environment=<appset>&model=<model>` | List Logic Scripts of a model |
 | GET | `/script?environment=<appset>&model=<model>&name=<name.LGF>` | Read one Logic Script (content Base64) |
@@ -141,6 +157,8 @@ Data and comment requests take `environment` and `model`, plus:
 - **Comment import:** `csv` and `keepAuthor` (`X` keeps `USER_ID` / `DATEWRITTEN`). Response: `{ "submitted": n, "success": n, "skipped": n, "failed": n, "messages": [...] }`.
 
 Exports respond with `{ "csv": "..." }`.
+
+License audit returns `{ "client": "001", "startDate": "20260101", "endDate": "20261003", "professional": 0, "standard": 0, "inactiveProfessional": 0, "inactiveStandard": 0, "users": [...] }`. Each user includes `userId`, `license`, `accountStatus`, `source`, `activity`, `activityDate`, `activityTime`, `environment`, `lastAccessDate` and `lastAccessTime`. Dates use `YYYYMMDD`; timestamps are UTC numeric strings, with zero indicating no recorded timestamp. Invalid or future start dates return 400; missing report authorization returns 403. The endpoint is read-only and its response is not cached.
 
 ## Archive format
 
