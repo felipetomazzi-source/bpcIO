@@ -1,2 +1,4 @@
 .kiro/settings/mcp.json
 .codex/config.toml
+.playwright-cli/
+.test-results/
