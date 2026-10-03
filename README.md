@@ -1,6 +1,15 @@
 # bpcIO
 
-A simple SAP BPC web application for moving **BPC objects, transaction data and comments** between environments (AppSets) and models. It runs entirely inside SAP as a SAPUI5 app backed by a small ABAP REST service. Objects travel in a portable, gzip-compressed XML archive; data and comments travel as CSV.
+A SAP BPC workspace with tile navigation to independent tools. **Transport** provides the built-in utility for moving **BPC objects, transaction data and comments** between environments (AppSets) and models. It runs entirely inside SAP as a SAPUI5 app backed by a small ABAP REST service. Objects travel in a portable, gzip-compressed XML archive; data and comments travel as CSV.
+
+## Workspace navigation
+
+The BPCIO home page has two tiles:
+
+- **Transport** opens the existing object, data and comment tools inside BPCIO. Its environment list loads when the tool is first opened; its back button returns to the workspace.
+- **BPC Git** navigates in the same browser tab to the separately installed BSP application at `/sap/bc/ui5_ui5/sap/zbpc_git/index.html`, preserving `sap-client`. Browser Back returns to BPCIO. Git retains its own environment selection and authorization.
+
+BPC Git must be installed and activated separately. The destination path is configured in `manifest.json` under `sap.ui5.config.bpcGitUrl` (an application path without query parameters). The hub does not load Git code or call its API. ASL is outside this release.
 
 ## Supported objects
 
@@ -14,7 +23,7 @@ A simple SAP BPC web application for moving **BPC objects, transaction data and 
 
 ## What it does
 
-After choosing an **environment** (remembered per client), the launch page shows three groups of tiles. The header bar's anchor links (**Transport | Data | Comments**) jump to each group, and a lightbulb toggle switches between the light (`sap_belize`) and dark (`sap_belize_plus`) themes; the choice is remembered in the browser and defaults to the operating system's colour scheme.
+After choosing an **environment** (remembered per client), the Transport page shows three groups of tiles. The header bar's anchor links (**Transport | Data | Comments**) jump to each group, and a lightbulb toggle switches between the light (`sap_belize`) and dark (`sap_belize_plus`) themes; the choice is remembered in the browser and defaults to the operating system's colour scheme.
 
 ### Transport
 
